@@ -1,0 +1,115 @@
+version: '3.8'
+
+services:
+  # ----------------------------------------
+  # 1. AGENT ORCHESTRATOR (Replaces n8n)
+  # ----------------------------------------
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.orchestrator
+    container_name: maaps_orchestrator
+    restart: unless-stopped
+    ports:
+      - "8080:8080"  # Webhook receiver
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=maaps
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - SELENIUM_HOST=selenium
+      - SELENIUM_PORT=4444
+      - GPU_WORKER_HOST=audio_worker
+      - GPU_WORKER_PORT=8000
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
+    volumes:
+      - ./agents:/app/agents
+      - ./core:/app/core
+      - ./local_files:/files
+    depends_on:
+      - postgres
+      - qdrant
+      - audio_worker
+    networks:
+      - maaps_network
+
+  # ----------------------------------------
+  # 2. DATABASE LAYER (Postgres)
+  # ----------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: maaps_postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=maaps
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - maaps_network
+
+  # ----------------------------------------
+  # 3. VECTOR MEMORY (Qdrant for RAG)
+  # ----------------------------------------
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: maaps_qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - maaps_network
+
+  # ----------------------------------------
+  # 4. GPU AUDIO WORKER (HeartMuLa + Demucs)
+  # ----------------------------------------
+  audio_worker:
+    image: pytorch/pytorch:2.1.2-cuda12.1-cudnn8-runtime
+    container_name: maaps_audio_worker
+    restart: unless-stopped
+    volumes:
+      - ./audio_worker:/app
+      - ./models:/app/models
+      - ./local_files:/files
+    working_dir: /app
+    command: uvicorn server:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - maaps_network
+
+  # ----------------------------------------
+  # 5. SCRAPER (Selenium Grid)
+  # ----------------------------------------
+  selenium:
+    image: selenium/standalone-chrome:latest
+    container_name: maaps_selenium
+    restart: unless-stopped
+    shm_size: "2gb"
+    ports:
+      - "4444:4444"
+      - "7900:7900"  # VNC viewing (password: secret)
+    networks:
+      - maaps_network
+
+volumes:
+  postgres_data:
+  qdrant_data:
+
+networks:
+  maaps_network:
+    driver: bridge

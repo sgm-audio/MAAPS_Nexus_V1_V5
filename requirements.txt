@@ -1,0 +1,44 @@
+# MAAPS Nexus V1-V5 Dependencies
+
+# Core
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+
+# FastAPI (Audio Worker API)
+fastapi>=0.109.0
+uvicorn>=0.27.0
+
+# Database
+psycopg2-binary>=2.9.9
+sqlalchemy>=2.0.0
+
+# Vector Database (RAG)
+qdrant-client>=1.7.0
+
+# Embeddings
+sentence-transformers>=2.3.0
+
+# Audio Processing
+soundfile>=0.12.1
+librosa>=0.10.1
+pyloudnorm>=0.1.1
+pedalboard>=0.8.0
+
+# AI/ML
+torch>=2.1.0
+torchaudio>=2.1.0
+transformers>=4.36.0
+
+# Stem Separation
+demucs>=4.0.0
+
+# Web Scraping
+selenium>=4.17.0
+beautifulsoup4>=4.12.0
+
+# HTTP
+httpx>=0.26.0
+requests>=2.31.0
+
+# Utilities
+numpy>=1.26.0
