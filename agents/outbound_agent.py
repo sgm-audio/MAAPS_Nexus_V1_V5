@@ -72,9 +72,20 @@ class OutboundAgent(BaseAgent):
         # Worker thread
         self._worker_thread: Optional[threading.Thread] = None
         self._worker_active = False
+        
+        # SMTP Session
+        self._smtp_session = None
+        self._last_smtp_activity = 0.0
+        self._smtp_timeout = 300.0  # 5 minutes
+        
+        # Templates
+        self._default_email_template = ""
     
     def setup(self):
         """Initialize outbound agent"""
+        # Load templates
+        self._load_templates()
+        
         # Subscribe to outbound topics
         self.subscribe(Topics.OUTBOUND_CAMPAIGN_START)
         self.subscribe(Topics.OUTBOUND_LEAD_PROCESS)
@@ -88,7 +99,67 @@ class OutboundAgent(BaseAgent):
     def teardown(self):
         """Cleanup outbound agent"""
         self._stop_worker()
+        self._close_smtp()
         self.log("INFO", "Outbound Agent shutdown complete")
+    
+    def _load_templates(self):
+        """Load email templates from file"""
+        try:
+            import os
+            template_path = os.path.join(os.path.dirname(__file__), 'templates', 'default_email.txt')
+            if os.path.exists(template_path):
+                with open(template_path, 'r') as f:
+                    self._default_email_template = f.read()
+                self.log("INFO", "Loaded default email template")
+            else:
+                self.log("WARNING", f"Template not found: {template_path}")
+        except Exception as e:
+            self.log("ERROR", f"Error loading templates: {e}")
+
+    def _get_smtp_connection(self):
+        """Get or create SMTP connection with keepalive"""
+        # Check if session exists and is fresh enough
+        if self._smtp_session:
+            try:
+                # Noop check
+                status = self._smtp_session.noop()[0]
+                if status == 250:
+                    self._last_smtp_activity = time.time()
+                    return self._smtp_session
+            except:
+                self.log("INFO", "SMTP session stale, reconnecting")
+                self._close_smtp()
+        
+        # Create new connection
+        try:
+            smtp_host = self.config.smtp_host
+            smtp_port = self.config.smtp_port
+            smtp_user = self.config.smtp_user
+            smtp_pass = self.config.smtp_password
+            
+            if not all([smtp_host, smtp_user, smtp_pass]):
+                return None
+            
+            self._smtp_session = smtplib.SMTP(smtp_host, smtp_port)
+            self._smtp_session.starttls()
+            self._smtp_session.login(smtp_user, smtp_pass)
+            
+            self._last_smtp_activity = time.time()
+            self.log("INFO", "SMTP connected")
+            return self._smtp_session
+            
+        except Exception as e:
+            self.log("ERROR", f"SMTP connection failed: {e}")
+            return None
+
+    def _close_smtp(self):
+        """Close SMTP session"""
+        if self._smtp_session:
+            try:
+                self._smtp_session.quit()
+            except:
+                pass
+            self._smtp_session = None
     
     def handle_message(self, message: Message):
         """Process outbound messages"""
@@ -208,6 +279,9 @@ class OutboundAgent(BaseAgent):
     
     def _default_template(self) -> str:
         """Default outbound template"""
+        if self._default_email_template:
+            return self._default_email_template
+            
         return """Hi {name},
 
 I noticed you're with {company} and wanted to reach out. 
@@ -302,14 +376,12 @@ Hivyr AI Agency"""
     def _send_email(self, message: OutboundMessage) -> bool:
         """Send email to lead"""
         try:
-            smtp_host = self.config.smtp_host
-            smtp_port = self.config.smtp_port
-            smtp_user = self.config.smtp_user
-            smtp_pass = self.config.smtp_password
-            
-            if not all([smtp_host, smtp_user, smtp_pass]):
-                self.log("WARNING", "SMTP not configured")
+            server = self._get_smtp_connection()
+            if not server:
+                self.log("WARNING", "No SMTP connection available")
                 return False
+            
+            smtp_user = self.config.smtp_user
             
             # Create message
             msg = MIMEMultipart()
@@ -332,14 +404,13 @@ Hivyr AI Agency"""
                     )
                     msg.attach(audio_part)
             
-            # Send
-            with smtplib.SMTP(smtp_host, smtp_port) as server:
-                server.starttls()
-                server.login(smtp_user, smtp_pass)
-                server.send_message(msg)
+            # Send (using reused connection)
+            server.send_message(msg)
             
             return True
         
         except Exception as e:
             self.log("ERROR", f"Email send error: {e}")
+            # Force reconnect next time
+            self._close_smtp()
             return False

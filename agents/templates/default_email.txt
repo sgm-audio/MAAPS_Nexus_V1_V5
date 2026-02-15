@@ -1,0 +1,11 @@
+Hi {name},
+
+I noticed you're with {company} and wanted to reach out. 
+
+We specialize in AI-powered audio production and automation systems that could help streamline your workflow.
+
+Would you be open to a quick 10-minute call to see if we could help?
+
+Best,
+Scott
+Hivyr AI Agency

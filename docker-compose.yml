@@ -71,15 +71,18 @@ services:
   # 4. GPU AUDIO WORKER (HeartMuLa + Demucs)
   # ----------------------------------------
   audio_worker:
-    image: pytorch/pytorch:2.1.2-cuda12.1-cudnn8-runtime
+    build:
+      context: .
+      dockerfile: Dockerfile.audio_worker
     container_name: maaps_audio_worker
     restart: unless-stopped
     volumes:
       - ./audio_worker:/app
       - ./models:/app/models
       - ./local_files:/files
-    working_dir: /app
-    command: uvicorn server:app --host 0.0.0.0 --port 8000
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
     ports:
       - "8000:8000"
     deploy:

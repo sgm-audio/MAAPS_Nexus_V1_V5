@@ -14,6 +14,7 @@ from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
 import logging
+import httpx
 
 from core import BaseAgent, Message, Topics, Priority
 
@@ -84,9 +85,6 @@ class AudioWorkerAgent(BaseAgent):
     
     def setup(self):
         """Initialize audio worker agent"""
-        # Check GPU availability
-        self._check_gpu()
-        
         # Subscribe to audio topics
         self.subscribe(Topics.AUDIO_JOB_START)
         self.subscribe(Topics.AUDIO_HEARTMULA_GENERATE)
@@ -97,12 +95,31 @@ class AudioWorkerAgent(BaseAgent):
         # Start worker thread
         self._start_worker()
         
-        self.log("INFO", f"Audio Worker Agent initialized (device: {self.gpu_device})")
+        self.log("INFO", "Audio Worker Agent initialized (Proxy Mode)")
     
-    def teardown(self):
-        """Cleanup audio worker agent"""
-        self._stop_worker()
-        self.log("INFO", "Audio Worker Agent shutdown complete")
+    def _call_worker_api(self, job_type: str, params: Dict, input_path: Optional[str] = None, output_path: Optional[str] = None) -> Dict:
+        """Call GPU Worker API"""
+        worker_host = os.getenv('GPU_WORKER_HOST', 'audio_worker')
+        worker_port = os.getenv('GPU_WORKER_PORT', '8000')
+        url = f"http://{worker_host}:{worker_port}/process"
+        
+        payload = {
+            "job_type": job_type,
+            "input_path": input_path,
+            "output_path": output_path,
+            "params": params
+        }
+        
+        self.log("INFO", f"Calling Worker API: {job_type}")
+        
+        try:
+            with httpx.Client(timeout=600.0) as client: # 10 min timeout for heavy jobs
+                response = client.post(url, json=payload)
+                response.raise_for_status()
+                return response.json()
+        except Exception as e:
+            self.log("ERROR", f"Worker API call failed: {e}")
+            raise e
     
     def handle_message(self, message: Message):
         """Process incoming audio job messages"""
@@ -388,99 +405,40 @@ class AudioWorkerAgent(BaseAgent):
         })
     
     def _run_heartmula(self, job: AudioJob):
-        """
-        Run HeartMuLa AI music generation.
-        
-        Placeholder - integrate with HeartMuLa API when available.
-        """
-        self.log("INFO", f"HeartMuLa generate: {job.params.get('prompt', '')[:50]}...")
-        
-        # TODO: Integrate with HeartMuLa API
-        # For now, simulate processing
-        for i in range(10):
-            job.progress = (i + 1) / 10
-            self._publish_progress(job)
-            time.sleep(0.5)
-        
-        job.result = {
-            'status': 'simulated',
-            'output_path': job.output_path,
-            'duration': job.params.get('duration', 30)
-        }
+        """Run HeartMuLa via Worker API"""
+        result = self._call_worker_api(
+            "heartmula_generate",
+            job.params,
+            output_path=job.output_path
+        )
+        job.result = result
     
     def _run_demucs(self, job: AudioJob):
-        """Run Demucs v4 stem separation"""
-        self.log("INFO", f"Demucs split: {job.input_path}")
-        
-        try:
-            import demucs.separate
-            
-            # Build command args
-            args = [
-                '-n', job.params.get('model', 'htdemucs'),
-                '-o', job.output_path,
-                '--device', self.gpu_device
-            ]
-            
-            if job.params.get('two_stems'):
-                args.extend(['--two-stems', job.params['two_stems']])
-            
-            args.append(job.input_path)
-            
-            # Run demucs
-            demucs.separate.main(args)
-            
-            job.result = {
-                'stems': ['bass', 'drums', 'other', 'vocals'],
-                'output_dir': job.output_path
-            }
-        
-        except ImportError:
-            self.log("WARNING", "Demucs not installed, simulating")
-            time.sleep(2.0)
-            job.result = {'status': 'simulated'}
+        """Run Demucs via Worker API"""
+        result = self._call_worker_api(
+            "demucs_split",
+            job.params,
+            input_path=job.input_path,
+            output_path=job.output_path
+        )
+        job.result = result
     
     def _run_rvc(self, job: AudioJob):
-        """Run RVC voice cloning"""
-        self.log("INFO", f"RVC clone: {job.input_path}")
-        
-        # TODO: Integrate with RVC inference
-        # Placeholder simulation
-        time.sleep(2.0)
-        job.result = {
-            'status': 'simulated',
-            'output_path': job.output_path
-        }
+        """Run RVC via Worker API"""
+        result = self._call_worker_api(
+            "rvc_clone",
+            job.params,
+            input_path=job.input_path,
+            output_path=job.output_path
+        )
+        job.result = result
     
     def _run_lufs_normalize(self, job: AudioJob):
-        """Run BS.1770 LUFS normalization"""
-        self.log("INFO", f"LUFS normalize: {job.input_path} -> {job.params.get('target_lufs')} LUFS")
-        
-        try:
-            import pyloudnorm as pyln
-            import soundfile as sf
-            
-            # Read audio
-            data, rate = sf.read(job.input_path)
-            
-            # Measure loudness
-            meter = pyln.Meter(rate)
-            loudness = meter.integrated_loudness(data)
-            
-            # Normalize
-            target = job.params.get('target_lufs', -14.0)
-            normalized = pyln.normalize.loudness(data, loudness, target)
-            
-            # Write output
-            sf.write(job.output_path, normalized, rate)
-            
-            job.result = {
-                'original_lufs': loudness,
-                'target_lufs': target,
-                'output_path': job.output_path
-            }
-        
-        except ImportError:
-            self.log("WARNING", "pyloudnorm not installed, simulating")
-            time.sleep(1.0)
-            job.result = {'status': 'simulated'}
+        """Run LUFS via Worker API"""
+        result = self._call_worker_api(
+            "lufs_normalize",
+            job.params,
+            input_path=job.input_path,
+            output_path=job.output_path
+        )
+        job.result = result
