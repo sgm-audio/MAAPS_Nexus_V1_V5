@@ -148,4 +148,4 @@ cd rust && cargo build --release
 
 ## License
 
-MIT License - Open Source Contribution Friendly
+Proprietary License - All Rights Reserved by Scott G Mills and SGM Studios.
