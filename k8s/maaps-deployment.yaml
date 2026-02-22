@@ -1,0 +1,645 @@
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: maaps
+
+---
+# ConfigMap for environment configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: maaps-config
+  namespace: maaps
+data:
+  TZ: "UTC"
+  POSTGRES_HOST: "postgres.maaps.svc.cluster.local"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "maaps"
+  QDRANT_HOST: "qdrant.maaps.svc.cluster.local"
+  QDRANT_PORT: "6333"
+  SELENIUM_HOST: "selenium.maaps.svc.cluster.local"
+  SELENIUM_PORT: "4444"
+  GPU_WORKER_HOST: "audio-worker.maaps.svc.cluster.local"
+  GPU_WORKER_PORT: "8000"
+
+---
+# Secret for sensitive data
+apiVersion: v1
+kind: Secret
+metadata:
+  name: maaps-secrets
+  namespace: maaps
+type: Opaque
+stringData:
+  POSTGRES_USER: "maaps"
+  POSTGRES_PASSWORD: "change-me-in-production"
+  QDRANT_API_KEY: "change-me"
+  HEARTMULA_API_KEY: ""
+  ELEVENLABS_API_KEY: ""
+  GITHUB_WEBHOOK_SECRET: ""
+
+---
+# PostgreSQL Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: maaps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:16-alpine
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: maaps-secrets
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: maaps-secrets
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: maaps-config
+              key: POSTGRES_DB
+        - name: TZ
+          valueFrom:
+            configMapKeyRef:
+              name: maaps-config
+              key: TZ
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+        - name: init-script
+          mountPath: /docker-entrypoint-initdb.d
+        livenessProbe:
+          exec:
+            command: ["pg_isready", "-U", "maaps", "-d", "maaps"]
+          initialDelaySeconds: 20
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command: ["pg_isready", "-U", "maaps", "-d", "maaps"]
+          initialDelaySeconds: 20
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: postgres-data
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+      - name: init-script
+        configMap:
+          name: postgres-init
+
+---
+# Qdrant Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qdrant
+  namespace: maaps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: qdrant
+  template:
+    metadata:
+      labels:
+        app: qdrant
+    spec:
+      containers:
+      - name: qdrant
+        image: qdrant/qdrant:latest
+        ports:
+        - containerPort: 6333
+        env:
+        - name: QDRANT_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: maaps-secrets
+              key: QDRANT_API_KEY
+        volumeMounts:
+        - name: qdrant-data
+          mountPath: /qdrant/storage
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 6333
+          initialDelaySeconds: 20
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 6333
+          initialDelaySeconds: 20
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+      volumes:
+      - name: qdrant-data
+        persistentVolumeClaim:
+          claimName: qdrant-pvc
+
+---
+# Audio Worker Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audio-worker
+  namespace: maaps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: audio-worker
+  template:
+    metadata:
+      labels:
+        app: audio-worker
+    spec:
+      containers:
+      - name: audio-worker
+        image: ghcr.io/your-org/maaps/audio_worker:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+        env:
+        - name: QDRANT_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: maaps-config
+              key: QDRANT_HOST
+        - name: QDRANT_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: maaps-config
+              key: QDRANT_PORT
+        - name: TZ
+          valueFrom:
+            configMapKeyRef:
+              name: maaps-config
+              key: TZ
+        volumeMounts:
+        - name: models
+          mountPath: /app/models
+        - name: local-files
+          mountPath: /files
+        - name: cache
+          mountPath: /app/.cache
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 40
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 40
+          periodSeconds: 10
+          timeoutSeconds: 5
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "2000m"
+            nvidia.com/gpu: "1"
+          limits:
+            memory: "8Gi"
+            cpu: "4000m"
+            nvidia.com/gpu: "1"
+      volumes:
+      - name: models
+        persistentVolumeClaim:
+          claimName: models-pvc
+      - name: local-files
+        persistentVolumeClaim:
+          claimName: local-files-pvc
+      - name: cache
+        emptyDir: {}
+      nodeSelector:
+        accelerator: nvidia-gpu
+
+---
+# Selenium Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: selenium
+  namespace: maaps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: selenium
+  template:
+    metadata:
+      labels:
+        app: selenium
+    spec:
+      containers:
+      - name: selenium
+        image: selenium/standalone-chrome:latest
+        ports:
+        - containerPort: 4444
+          name: webdriver
+        - containerPort: 7900
+          name: vnc
+        env:
+        - name: SE_NODE_MAX_SESSIONS
+          value: "5"
+        - name: SE_NODE_SESSION_TIMEOUT
+          value: "600"
+        volumeMounts:
+        - name: shm
+          mountPath: /dev/shm
+        livenessProbe:
+          httpGet:
+            path: /status
+            port: 4444
+          initialDelaySeconds: 20
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /status
+            port: 4444
+          initialDelaySeconds: 20
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+      volumes:
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 2Gi
+
+---
+# Orchestrator Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+  namespace: maaps
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: orchestrator
+  template:
+    metadata:
+      labels:
+        app: orchestrator
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - orchestrator
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: orchestrator
+        image: ghcr.io/your-org/maaps/orchestrator:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: POSTGRES_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: maaps-config
+              key: POSTGRES_HOST
+        - name: POSTGRES_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: maaps-config
+              key: POSTGRES_PORT
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: maaps-secrets
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: maaps-secrets
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: maaps-config
+              key: POSTGRES_DB
+        - name: QDRANT_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: maaps-config
+              key: QDRANT_HOST
+        - name: QDRANT_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: maaps-config
+              key: QDRANT_PORT
+        - name: SELENIUM_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: maaps-config
+              key: SELENIUM_HOST
+        - name: SELENIUM_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: maaps-config
+              key: SELENIUM_PORT
+        - name: GPU_WORKER_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: maaps-config
+              key: GPU_WORKER_HOST
+        - name: GPU_WORKER_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: maaps-config
+              key: GPU_WORKER_PORT
+        - name: HEARTMULA_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: maaps-secrets
+              key: HEARTMULA_API_KEY
+        - name: ELEVENLABS_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: maaps-secrets
+              key: ELEVENLABS_API_KEY
+        - name: TZ
+          valueFrom:
+            configMapKeyRef:
+              name: maaps-config
+              key: TZ
+        volumeMounts:
+        - name: local-files
+          mountPath: /files
+        - name: cache
+          mountPath: /app/.cache
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 40
+          periodSeconds: 15
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 40
+          periodSeconds: 15
+          timeoutSeconds: 5
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+      volumes:
+      - name: local-files
+        persistentVolumeClaim:
+          claimName: local-files-pvc
+      - name: cache
+        emptyDir: {}
+
+---
+# PostgreSQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: maaps
+spec:
+  selector:
+    app: postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+  type: ClusterIP
+
+---
+# Qdrant Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant
+  namespace: maaps
+spec:
+  selector:
+    app: qdrant
+  ports:
+  - port: 6333
+    targetPort: 6333
+  type: ClusterIP
+
+---
+# Audio Worker Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: audio-worker
+  namespace: maaps
+spec:
+  selector:
+    app: audio-worker
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: http
+  type: ClusterIP
+
+---
+# Selenium Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: selenium
+  namespace: maaps
+spec:
+  selector:
+    app: selenium
+  ports:
+  - port: 4444
+    targetPort: 4444
+    name: webdriver
+  - port: 7900
+    targetPort: 7900
+    name: vnc
+  type: ClusterIP
+
+---
+# Orchestrator Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: orchestrator
+  namespace: maaps
+spec:
+  selector:
+    app: orchestrator
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+  type: LoadBalancer
+
+---
+# Orchestrator Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: orchestrator-ingress
+  namespace: maaps
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - maaps.example.com
+    secretName: orchestrator-tls
+  rules:
+  - host: maaps.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: orchestrator
+            port:
+              number: 8080
+
+---
+# PostgreSQL PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: maaps
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+# Qdrant PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: qdrant-pvc
+  namespace: maaps
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+# Models PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: models-pvc
+  namespace: maaps
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 100Gi
+
+---
+# Local Files PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: local-files-pvc
+  namespace: maaps
+spec:
+  accessModes:
+  - ReadWriteMany
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+# HorizontalPodAutoscaler for Orchestrator
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: orchestrator-hpa
+  namespace: maaps
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: orchestrator
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80

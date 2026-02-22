@@ -1,0 +1,61 @@
+version: '3.8'
+
+# Staging environment overrides
+# Use with: docker compose -f docker-compose.yml -f docker-compose.staging.yml up
+
+services:
+  postgres:
+    environment:
+      TZ: UTC
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  qdrant:
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  audio_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.audio_worker
+      args:
+        PYTORCH_VERSION: 2.1.2
+        CUDA_VERSION: 12.1
+        CUDNN_VERSION: 8
+    environment:
+      - LOG_LEVEL=DEBUG
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./audio_worker:/app
+      - ./models:/app/models
+      - ./local_files:/files
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.orchestrator
+      args:
+        PYTHON_VERSION: "3.11"
+    environment:
+      - LOG_LEVEL=DEBUG
+      - ENABLE_PROFILING=false
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./agents:/app/agents
+      - ./core:/app/core
+      - ./local_files:/files
+      - ./maaps.log:/app/maaps.log
+
+  selenium:
+    ports:
+      - "4444:4444"
+      - "7900:7900"
+    environment:
+      - SE_NODE_MAX_SESSIONS=10
+      - SE_NODE_SESSION_TIMEOUT=900

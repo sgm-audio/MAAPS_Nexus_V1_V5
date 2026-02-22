@@ -1,0 +1,59 @@
+---
+# PostgreSQL PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: maaps
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+# Qdrant PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: qdrant-pvc
+  namespace: maaps
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+# Models PVC (for ML models - larger storage)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: models-pvc
+  namespace: maaps
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 100Gi
+
+---
+# Local Files PVC (shared by multiple pods)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: local-files-pvc
+  namespace: maaps
+spec:
+  accessModes:
+  - ReadWriteMany
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 50Gi

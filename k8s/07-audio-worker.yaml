@@ -1,0 +1,111 @@
+---
+# Audio Worker Deployment (GPU-accelerated)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audio-worker
+  namespace: maaps
+  labels:
+    app: audio-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: audio-worker
+  template:
+    metadata:
+      labels:
+        app: audio-worker
+    spec:
+      # Node selector for GPU nodes
+      nodeSelector:
+        accelerator: nvidia-gpu
+      containers:
+      - name: audio-worker
+        image: ghcr.io/your-org/maaps/audio_worker:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: QDRANT_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: maaps-config
+              key: QDRANT_HOST
+        - name: QDRANT_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: maaps-config
+              key: QDRANT_PORT
+        - name: TZ
+          valueFrom:
+            configMapKeyRef:
+              name: maaps-config
+              key: TZ
+        volumeMounts:
+        - name: models
+          mountPath: /app/models
+        - name: local-files
+          mountPath: /files
+        - name: cache
+          mountPath: /app/.cache
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 40
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 40
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "2000m"
+            nvidia.com/gpu: "1"
+          limits:
+            memory: "8Gi"
+            cpu: "4000m"
+            nvidia.com/gpu: "1"
+      volumes:
+      - name: models
+        persistentVolumeClaim:
+          claimName: models-pvc
+      - name: local-files
+        persistentVolumeClaim:
+          claimName: local-files-pvc
+      - name: cache
+        emptyDir: {}
+      # Ensure pod stays on GPU node if preempted
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Equal
+        value: "true"
+        effect: NoSchedule
+
+---
+# Audio Worker Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: audio-worker
+  namespace: maaps
+  labels:
+    app: audio-worker
+spec:
+  selector:
+    app: audio-worker
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  type: ClusterIP

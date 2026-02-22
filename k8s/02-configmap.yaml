@@ -1,0 +1,44 @@
+---
+# ConfigMap for environment configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: maaps-config
+  namespace: maaps
+data:
+  TZ: "UTC"
+  POSTGRES_HOST: "postgres.maaps.svc.cluster.local"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "maaps"
+  QDRANT_HOST: "qdrant.maaps.svc.cluster.local"
+  QDRANT_PORT: "6333"
+  SELENIUM_HOST: "selenium.maaps.svc.cluster.local"
+  SELENIUM_PORT: "4444"
+  GPU_WORKER_HOST: "audio-worker.maaps.svc.cluster.local"
+  GPU_WORKER_PORT: "8000"
+
+---
+# ConfigMap for PostgreSQL initialization
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: maaps
+data:
+  init.sql: |
+    -- MAAPS Database Initialization
+    CREATE EXTENSION IF NOT EXISTS uuid-ossp;
+    CREATE EXTENSION IF NOT EXISTS pgcrypto;
+    
+    -- Create tables as needed by your application
+    -- This is a template - modify according to your schema
+    CREATE TABLE IF NOT EXISTS jobs (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      status VARCHAR(50) DEFAULT 'pending',
+      data JSONB
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+    CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at);

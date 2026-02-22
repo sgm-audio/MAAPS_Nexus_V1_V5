@@ -1,0 +1,20 @@
+---
+# For local development (Minikube, Docker Desktop)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-standard
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+---
+# For cloud providers (AWS EBS, Azure, GCP)
+# Uncomment and modify for your cloud provider
+# apiVersion: storage.k8s.io/v1
+# kind: StorageClass
+# metadata:
+#   name: cloud-standard
+# provisioner: ebs.csi.aws.amazon.com
+# parameters:
+#   type: gp3
+#   iops: "3000"
+#   throughput: "125"

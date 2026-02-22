@@ -1,0 +1,36 @@
+---
+# NGINX Ingress Controller configuration (optional)
+# This assumes NGINX Ingress Controller is installed in the cluster
+# https://kubernetes.github.io/ingress-nginx/
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: orchestrator-ingress
+  namespace: maaps
+  annotations:
+    # For cert-manager with Let's Encrypt
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+spec:
+  ingressClassName: nginx
+  # Uncomment for TLS/HTTPS
+  # tls:
+  # - hosts:
+  #   - maaps.example.com
+  #   secretName: orchestrator-tls
+  rules:
+  - host: maaps.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: orchestrator
+            port:
+              number: 8080
