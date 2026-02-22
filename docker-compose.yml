@@ -1,60 +1,37 @@
-version: '3.8'
-
 services:
   # ----------------------------------------
-  # 1. AGENT ORCHESTRATOR (Replaces n8n)
-  # ----------------------------------------
-  orchestrator:
-    build:
-      context: .
-      dockerfile: Dockerfile.orchestrator
-    container_name: maaps_orchestrator
-    restart: unless-stopped
-    ports:
-      - "8080:8080"  # Webhook receiver
-    environment:
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=maaps
-      - QDRANT_HOST=qdrant
-      - QDRANT_PORT=6333
-      - SELENIUM_HOST=selenium
-      - SELENIUM_PORT=4444
-      - GPU_WORKER_HOST=audio_worker
-      - GPU_WORKER_PORT=8000
-      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
-    volumes:
-      - ./agents:/app/agents
-      - ./core:/app/core
-      - ./local_files:/files
-    depends_on:
-      - postgres
-      - qdrant
-      - audio_worker
-    networks:
-      - maaps_network
-
-  # ----------------------------------------
-  # 2. DATABASE LAYER (Postgres)
+  # 1. DATABASE LAYER (Postgres)
   # ----------------------------------------
   postgres:
     image: postgres:16-alpine
     container_name: maaps_postgres
     restart: unless-stopped
     environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=maaps
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: maaps
+      TZ: ${TZ:-UTC}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d maaps"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - maaps_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ----------------------------------------
-  # 3. VECTOR MEMORY (Qdrant for RAG)
+  # 2. VECTOR MEMORY (Qdrant for RAG)
   # ----------------------------------------
   qdrant:
     image: qdrant/qdrant:latest
@@ -64,27 +41,50 @@ services:
       - "6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT_API_KEY=${QDRANT_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - maaps_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ----------------------------------------
-  # 4. GPU AUDIO WORKER (HeartMuLa + Demucs)
+  # 3. GPU AUDIO WORKER (HeartMuLa + Demucs)
   # ----------------------------------------
   audio_worker:
     build:
       context: .
       dockerfile: Dockerfile.audio_worker
+      args:
+        PYTORCH_VERSION: 2.1.2
+        CUDA_VERSION: 12.1
+        CUDNN_VERSION: 8
+    image: maaps/audio_worker:latest
     container_name: maaps_audio_worker
     restart: unless-stopped
+    environment:
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      TZ: ${TZ:-UTC}
     volumes:
       - ./audio_worker:/app
       - ./models:/app/models
       - ./local_files:/files
-    environment:
-      - QDRANT_HOST=qdrant
-      - QDRANT_PORT=6333
+      - audio_worker_cache:/app/.cache
     ports:
       - "8000:8000"
+    depends_on:
+      qdrant:
+        condition: service_healthy
     deploy:
       resources:
         reservations:
@@ -92,11 +92,18 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+        limits:
+          memory: 8G
     networks:
       - maaps_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ----------------------------------------
-  # 5. SCRAPER (Selenium Grid)
+  # 4. SCRAPER (Selenium Grid)
   # ----------------------------------------
   selenium:
     image: selenium/standalone-chrome:latest
@@ -106,12 +113,89 @@ services:
     ports:
       - "4444:4444"
       - "7900:7900"  # VNC viewing (password: secret)
+    environment:
+      - SE_NODE_MAX_SESSIONS=5
+      - SE_NODE_SESSION_TIMEOUT=600
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4444/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks:
       - maaps_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ----------------------------------------
+  # 5. AGENT ORCHESTRATOR (Replaces n8n)
+  # ----------------------------------------
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.orchestrator
+      args:
+        PYTHON_VERSION: "3.11"
+    image: maaps/orchestrator:latest
+    container_name: maaps_orchestrator
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: maaps
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      SELENIUM_HOST: selenium
+      SELENIUM_PORT: 4444
+      GPU_WORKER_HOST: audio_worker
+      GPU_WORKER_PORT: 8000
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET}
+      HEARTMULA_API_KEY: ${HEARTMULA_API_KEY:-}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SGM_STUDIOS_PATH: ${SGM_STUDIOS_PATH:-/mnt/sgm_studios}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ./agents:/app/agents
+      - ./core:/app/core
+      - ./local_files:/files
+      - orchestrator_cache:/app/.cache
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      audio_worker:
+        condition: service_healthy
+      selenium:
+        condition: service_healthy
+    networks:
+      - maaps_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   postgres_data:
+    driver: local
   qdrant_data:
+    driver: local
+  audio_worker_cache:
+    driver: local
+  orchestrator_cache:
+    driver: local
 
 networks:
   maaps_network:
