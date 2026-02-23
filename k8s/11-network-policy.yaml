@@ -1,0 +1,145 @@
+---
+# NetworkPolicy for Pod-to-Pod communication control
+# These policies enforce which pods can communicate with each other
+
+# Deny all ingress traffic by default
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: maaps
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+
+---
+# Allow postgres to receive connections from orchestrator
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-postgres-from-orchestrator
+  namespace: maaps
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: orchestrator
+    ports:
+    - protocol: TCP
+      port: 5432
+
+---
+# Allow qdrant to receive connections from orchestrator and audio-worker
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-qdrant
+  namespace: maaps
+spec:
+  podSelector:
+    matchLabels:
+      app: qdrant
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: orchestrator
+    - podSelector:
+        matchLabels:
+          app: audio-worker
+    ports:
+    - protocol: TCP
+      port: 6333
+
+---
+# Allow audio-worker to receive connections from orchestrator
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-audio-worker
+  namespace: maaps
+spec:
+  podSelector:
+    matchLabels:
+      app: audio-worker
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: orchestrator
+    ports:
+    - protocol: TCP
+      port: 8000
+
+---
+# Allow selenium to receive connections from orchestrator
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-selenium
+  namespace: maaps
+spec:
+  podSelector:
+    matchLabels:
+      app: selenium
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: orchestrator
+    ports:
+    - protocol: TCP
+      port: 4444
+
+---
+# Allow orchestrator to receive external traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-orchestrator-external
+  namespace: maaps
+spec:
+  podSelector:
+    matchLabels:
+      app: orchestrator
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 8080
+
+---
+# Allow DNS queries from all pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: maaps
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53

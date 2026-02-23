@@ -1,0 +1,89 @@
+---
+# Selenium Hub Deployment (Web scraping)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: selenium
+  namespace: maaps
+  labels:
+    app: selenium
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: selenium
+  template:
+    metadata:
+      labels:
+        app: selenium
+    spec:
+      containers:
+      - name: selenium
+        image: selenium/standalone-chrome:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 4444
+          name: webdriver
+        - containerPort: 7900
+          name: vnc
+        env:
+        - name: SE_NODE_MAX_SESSIONS
+          value: "5"
+        - name: SE_NODE_SESSION_TIMEOUT
+          value: "600"
+        - name: SE_VNC_NO_ENTRY_POINT
+          value: "true"
+        volumeMounts:
+        - name: shm
+          mountPath: /dev/shm
+        livenessProbe:
+          httpGet:
+            path: /status
+            port: 4444
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /status
+            port: 4444
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+      volumes:
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 2Gi
+
+---
+# Selenium Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: selenium
+  namespace: maaps
+  labels:
+    app: selenium
+spec:
+  selector:
+    app: selenium
+  ports:
+  - port: 4444
+    targetPort: 4444
+    protocol: TCP
+    name: webdriver
+  - port: 7900
+    targetPort: 7900
+    protocol: TCP
+    name: vnc
+  type: ClusterIP

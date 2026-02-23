@@ -1,0 +1,149 @@
+name: Security Checks
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+  schedule:
+    # Weekly security scan
+    - cron: '0 0 * * 0'
+
+jobs:
+  dependency-check:
+    runs-on: ubuntu-latest
+    name: Dependency Security Check
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install safety
+        run: pip install safety
+
+      - name: Check Python dependencies
+        run: safety check -r requirements.txt --json
+
+  dockerfile-lint:
+    runs-on: ubuntu-latest
+    name: Dockerfile Linting
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint Dockerfile.orchestrator
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile.orchestrator
+
+      - name: Lint Dockerfile.audio_worker
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile.audio_worker
+
+  code-quality:
+    runs-on: ubuntu-latest
+    name: Code Quality Analysis
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install flake8 black pylint mypy
+
+      - name: Run flake8
+        run: flake8 core/ agents/ main.py --max-line-length=100 --ignore=E501,W503
+
+      - name: Check black formatting
+        run: black --check core/ agents/ main.py
+
+      - name: Run pylint
+        continue-on-error: true
+        run: pylint core/ agents/ main.py --disable=R,C
+
+  secret-scanning:
+    runs-on: ubuntu-latest
+    name: Secret Scanning
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run truffleHog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --debug --only-verified
+
+  sbom-generation:
+    runs-on: ubuntu-latest
+    name: Generate SBOM
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Syft
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v3
+        with:
+          name: sbom
+          path: sbom.json
+
+  container-scan:
+    runs-on: ubuntu-latest
+    name: Container Image Scan
+    if: github.event_name == 'push'
+
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+
+    strategy:
+      matrix:
+        image:
+          - orchestrator
+          - audio_worker
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image locally for scanning
+        run: |
+          docker build -f Dockerfile.${{ matrix.image }} -t maaps/${{ matrix.image }}:scan .
+
+      - name: Run Grype scan
+        uses: anchore/scan-action@v3
+        id: grype
+        with:
+          image: maaps/${{ matrix.image }}:scan
+          fail-build: true
+          severity-cutoff: high
+
+      - name: Upload Grype results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: ${{ steps.grype.outputs.sarif }}

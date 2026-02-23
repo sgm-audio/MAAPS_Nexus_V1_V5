@@ -1,31 +1,51 @@
-FROM pytorch/pytorch:2.1.2-cuda12.1-cudnn8-runtime
+ARG PYTORCH_VERSION=2.1.2
+ARG CUDA_VERSION=12.1
+ARG CUDNN_VERSION=8
+FROM pytorch/pytorch:${PYTORCH_VERSION}-cuda${CUDA_VERSION}-cudnn${CUDNN_VERSION}-runtime AS base
+
+WORKDIR /build
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    ffmpeg \
+    libsndfile1-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and pre-compile wheels
+COPY requirements.txt .
+RUN pip install --user --no-cache-dir --no-warn-script-location -r requirements.txt
+
+
+FROM pytorch/pytorch:${PYTORCH_VERSION}-cuda${CUDA_VERSION}-cudnn${CUDNN_VERSION}-runtime
 
 WORKDIR /app
 
-# Install system dependencies
-# ffmpeg: required for audio processing (demucs, librosa)
-# libsndfile1: required for soundfile
-# git: required for some pip packages or cloning
-RUN apt-get update && apt-get install -y \
-    git \
+# Install runtime dependencies only (no build tools)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libsndfile1 \
-    build-essential \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements from parent context
-COPY requirements.txt .
+# Copy pre-built packages from builder
+COPY --from=base /root/.local /root/.local
+ENV PATH=/root/.local/bin:$PATH
 
-# Install Python dependencies
-# Note: The base image already contains PyTorch, but we install from requirements
-# to ensure other deps (FastAPI, Demucs, etc.) are present.
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy audio worker source code
+# Copy audio worker code
 COPY audio_worker/ .
 
-# Expose the API port
+# Create non-root user
+RUN useradd -m -u 1000 worker && chown -R worker:worker /app
+USER worker
+
+# Health check for API
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD python -c "import httpx; httpx.get('http://localhost:8000/health', timeout=5)" || exit 1
+
+# Expose API port
 EXPOSE 8000
 
-# Start the FastAPI server
+# Start FastAPI server
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
