@@ -1,0 +1,410 @@
+{
+  "name": "SALES-PIPELINE-MASTER",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sales-pipeline-start",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "master-webhook",
+      "name": "Sales Pipeline Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.2,
+      "position": [250, 300],
+      "webhookId": "maaps-sales-pipeline",
+      "notes": "Entry point for all sales operations. Expects: { 'lead_id': '...', 'source': '...', 'action': 'process' }"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HIVYR_N8N_INTERNAL }}/workflow/lead-enrichment",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "lead_id",
+              "value": "={{ $json.body.lead_id }}"
+            },
+            {
+              "name": "source",
+              "value": "={{ $json.body.source }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "enrich-lead",
+      "name": "Execute Workflow: Lead Enrichment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [450, 300],
+      "notes": "Atomic Sub-Workflow #1: Scrapes LinkedIn, company data, bio. Returns enriched lead object."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HIVYR_N8N_INTERNAL }}/workflow/personalization-engine",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "lead_data",
+              "value": "={{ $json.enriched_lead }}"
+            },
+            {
+              "name": "campaign_id",
+              "value": "={{ $json.body.campaign_id || $env.HIVYR_DEFAULT_CAMPAIGN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "generate-personalization",
+      "name": "Execute Workflow: Personalization Engine",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [650, 300],
+      "notes": "Atomic Sub-Workflow #2: LLM generates personalized pitch + voice script. No compute in canvas."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HIVYR_AUDIO_WORKER_INTERNAL }}/generate-voice",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "={{ $json.voice_script }}"
+            },
+            {
+              "name": "voice_model",
+              "value": "={{ $env.HIVYR_DEFAULT_VOICE_MODEL }}"
+            },
+            {
+              "name": "task_id",
+              "value": "={{ $json.body.lead_id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "generate-voice-audio",
+      "name": "Offload: Voice Generation (Python)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 300],
+      "notes": "Rule #1: Heavy compute offloaded to Python audio worker (HeartMuLa/ElevenLabs). n8n just routes."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HIVYR_N8N_INTERNAL }}/workflow/email-dispatch",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "lead_email",
+              "value": "={{ $json.enriched_lead.email }}"
+            },
+            {
+              "name": "personalized_text",
+              "value": "={{ $json.personalized_pitch }}"
+            },
+            {
+              "name": "audio_path",
+              "value": "={{ $json.audio_path }}"
+            },
+            {
+              "name": "lead_id",
+              "value": "={{ $json.body.lead_id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "dispatch-email",
+      "name": "Execute Workflow: Email Dispatch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1050, 300],
+      "notes": "Atomic Sub-Workflow #3: Sends email via SMTP with optional audio attachment. Logs to DB."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HIVYR_SUPABASE_URL }}/rest/v1/sales_events",
+        "headers": {
+          "apikey": "={{ $env.HIVYR_SUPABASE_KEY }}",
+          "Authorization": "Bearer {{ $env.HIVYR_SUPABASE_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "lead_id",
+              "value": "={{ $json.body.lead_id }}"
+            },
+            {
+              "name": "event_type",
+              "value": "outbound_sent"
+            },
+            {
+              "name": "timestamp",
+              "value": "={{ $now }}"
+            },
+            {
+              "name": "status",
+              "value": "success"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "log-to-db",
+      "name": "Log Event to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1250, 300],
+      "notes": "Rule #4: State management in Postgres/Supabase, not in n8n memory."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": true, \"lead_id\": \"{{ $json.body.lead_id }}\", \"status\": \"processed\" }",
+        "options": {}
+      },
+      "id": "return-success",
+      "name": "Return Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1450, 300],
+      "notes": "Immediate response. Client doesn't wait for downstream processing."
+    },
+    {
+      "parameters": {
+        "errorMessage": "={{ $json.message }}",
+        "additionalData": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "error-trigger",
+      "name": "Global Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [850, 500],
+      "notes": "Rule #5: Catches ALL errors from any node above. Standardized error handling pattern."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HIVYR_SLACK_ERROR_WEBHOOK }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "=🚨 SALES PIPELINE FAILURE\nLead ID: {{ $json.body.lead_id || 'unknown' }}\nError: {{ $json.message }}\nWorkflow: SALES-PIPELINE-MASTER"
+            },
+            {
+              "name": "attachments",
+              "value": "={{ JSON.stringify({ error: $json.message, stack: $json.stack, execution_id: $execution.id, timestamp: $now }) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "slack-alert",
+      "name": "Alert Slack Channel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1050, 500],
+      "notes": "Dumps full execution context to Slack for immediate triage."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HIVYR_SUPABASE_URL }}/rest/v1/sales_errors",
+        "headers": {
+          "apikey": "={{ $env.HIVYR_SUPABASE_KEY }}",
+          "Authorization": "Bearer {{ $env.HIVYR_SUPABASE_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "lead_id",
+              "value": "={{ $json.body.lead_id || 'unknown' }}"
+            },
+            {
+              "name": "error_message",
+              "value": "={{ $json.message }}"
+            },
+            {
+              "name": "error_stack",
+              "value": "={{ $json.stack }}"
+            },
+            {
+              "name": "execution_id",
+              "value": "={{ $execution.id }}"
+            },
+            {
+              "name": "timestamp",
+              "value": "={{ $now }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "log-error-db",
+      "name": "Log Error to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1250, 500],
+      "notes": "Persistent error log for root cause analysis. Queryable via SQL."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": false, \"error\": \"{{ $json.message }}\", \"lead_id\": \"{{ $json.body.lead_id || 'unknown' }}\" }",
+        "options": {}
+      },
+      "id": "return-error",
+      "name": "Return Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1450, 500],
+      "notes": "Graceful error response to client. No stack traces exposed."
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Sales Pipeline Trigger": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow: Lead Enrichment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow: Lead Enrichment": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow: Personalization Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow: Personalization Engine": {
+      "main": [
+        [
+          {
+            "node": "Offload: Voice Generation (Python)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Offload: Voice Generation (Python)": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow: Email Dispatch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow: Email Dispatch": {
+      "main": [
+        [
+          {
+            "node": "Log Event to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Event to Supabase": {
+      "main": [
+        [
+          {
+            "node": "Return Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Global Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Alert Slack Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Slack Channel": {
+      "main": [
+        [
+          {
+            "node": "Log Error to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error to Supabase": {
+      "main": [
+        [
+          {
+            "node": "Return Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "sales-pipeline-v1",
+  "meta": {
+    "templateType": "master-orchestration",
+    "description": "Master sales pipeline orchestrator. Chains atomic sub-workflows. Zero compute in canvas. Full error tracking.",
+    "protocols": [
+      "Rule #1: No compute in canvas - all heavy lifting offloaded to Python services",
+      "Rule #2: Atomic sub-workflows - each step is a reusable API endpoint",
+      "Rule #3: Webhooks protected by queue layer (see k8s/ingress config)",
+      "Rule #4: All credentials via environment variables",
+      "Rule #5: Standardized error handling with Slack + DB logging"
+    ]
+  },
+  "tags": ["MAAPS", "Hivyr", "Sales", "Production", "Master-Workflow"]
+}

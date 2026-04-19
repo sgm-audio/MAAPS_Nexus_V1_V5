@@ -1,5 +1,5 @@
-
-# Python virtual environment
+```
+# Virtual environment
 venv/
 
 # Dependencies
@@ -11,39 +11,26 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Package manager files
-package-lock.json
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Logs
+*.log
 
 # Environment variables
 .env
 .env.local
 *.env.*
 
-# IDE files
+# IDE
 .vscode/
 .idea/
 
-# OS generated files
+# OS
 .DS_Store
 Thumbs.db
-
-# Logs
-*.log
-
-# Build artifacts
-dist/
-build/
-target/
-
-# Coverage reports
-.coverage
-htmlcov/
-coverage/
-
-# Temporary files
-*.tmp
-*.swp
-*.swo
 
 # Compressed files
 *.zip

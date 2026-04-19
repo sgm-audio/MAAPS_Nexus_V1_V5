@@ -1,0 +1,139 @@
+{
+  "name": "ATOMIC-Audio-Processor-Template",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "webhookId": "atomic-audio-ingest",
+      "notes": "Entry point. Expects JSON: { 'audio_url': '...', 'task_id': '...' }"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://your-python-microservice.internal/process",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "audio_url",
+              "value": "={{ $json.body.audio_url }}"
+            },
+            {
+              "name": "task_id",
+              "value": "={{ $json.body.task_id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "offload-compute",
+      "name": "Offload to Python Service",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [450, 300],
+      "notes": "Rule #1: No compute in canvas. Pass data to Librosa/PyTorch service."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "return-response",
+      "name": "Return Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [650, 300],
+      "notes": "Immediate return. State is handled by the Python service or DB."
+    },
+    {
+      "parameters": {
+        "errorMessage": "={{ $json.message }}",
+        "additionalData": "={{ $json }}",
+        "options": {}
+      },
+      "id": "error-handler",
+      "name": "Global Error Catch",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [450, 500],
+      "notes": "Rule #5: Standardized Error Handling. Dumps JSON to logging channel."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://hooks.slack.com/services/YOUR/LOGGING/WEBHOOK",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "=\"🚨 MAAPS/HIVYR ALERT: Workflow Failed\\nError: \" + $json.message"
+            },
+            {
+              "name": "attachments",
+              "value": "={{ JSON.stringify($json) }}"
+            }
+          ]
+        }
+      },
+      "id": "log-error",
+      "name": "Log to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [650, 500]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Offload to Python Service",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Offload to Python Service": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Global Error Catch": {
+      "main": [
+        [
+          {
+            "node": "Log to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "atomic-v1",
+  "meta": {
+    "templateType": "atomic-subworkflow",
+    "description": "Refusable component for audio processing. Offloads compute, handles errors globally."
+  },
+  "tags": ["MAAPS", "Hivyr", "Atomic", "Production"]
+}
