@@ -1,72 +1,45 @@
-
-# Python virtual environment
-venv/
-
-# Dependencies
-node_modules/
-
-# Python cache
+```
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-
-# Package manager files
-package-lock.json
-
-# Environment variables
+.Python
+venv/
+.venv/
 .env
 .env.local
-*.env.*
+.env.*
 
-# IDE files
-.vscode/
-.idea/
-
-# OS generated files
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
+# Dependencies
+node_modules/
 
 # Build artifacts
 dist/
 build/
-target/
+*.egg-info/
 
-# Coverage reports
-.coverage
-htmlcov/
-coverage/
-
-# Temporary files
-*.tmp
+# Editors
+.vscode/
+.idea/
 *.swp
 *.swo
 
-# Compressed files
-*.zip
-*.gz
-*.tar
-*.tgz
-*.bz2
-*.xz
-*.7z
-*.rar
-*.zst
-*.lz4
-*.lzh
-*.cab
-*.arj
-*.rpm
-*.deb
-*.Z
-*.lz
-*.lzo
-*.tar.gz
-*.tar.bz2
-*.tar.xz
-*.tar.zst
+# Logs
+*.log
 
+# Coverage
+.coverage
+coverage/
+htmlcov/
+
+# Temp files
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Package manager
+package-lock.json
 ```
