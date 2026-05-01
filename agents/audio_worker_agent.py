@@ -97,6 +97,11 @@ class AudioWorkerAgent(BaseAgent):
         
         self.log("INFO", "Audio Worker Agent initialized (Proxy Mode)")
     
+    def teardown(self):
+        """Cleanup audio worker agent"""
+        self._stop_worker()
+        self.log("INFO", "Audio Worker Agent shutdown complete")
+    
     def _call_worker_api(self, job_type: str, params: Dict, input_path: Optional[str] = None, output_path: Optional[str] = None) -> Dict:
         """Call GPU Worker API"""
         worker_host = os.getenv('GPU_WORKER_HOST', 'audio_worker')
