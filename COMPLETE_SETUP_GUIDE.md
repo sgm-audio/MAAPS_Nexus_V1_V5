@@ -107,7 +107,7 @@ Click **"New repository secret"** for each of these:
 **Paste the full key**, including:
 ```
 -----BEGIN OPENSSH PRIVATE KEY-----
-[middle section]
+[YOUR_PRIVATE_KEY_HERE]
 -----END OPENSSH PRIVATE KEY-----
 ```
 
@@ -277,9 +277,9 @@ POSTGRES_USER=maaps
 POSTGRES_PASSWORD=your-secure-password-here
 QDRANT_API_KEY=your-qdrant-key-here
 
-# Optional APIs
-HEARTMULA_API_KEY=
-ELEVENLABS_API_KEY=
+# Optional APIs (leave unset unless you have keys)
+# HEARTMULA_API_KEY
+# ELEVENLABS_API_KEY
 
 # Timezone
 TZ=UTC
