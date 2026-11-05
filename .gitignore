@@ -70,3 +70,5 @@ coverage/
 *.tar.zst
 
 ```
+# EnAblton lives in its own repo: github.com/sgm-audio/enabltion
+.enabltion-stage/
