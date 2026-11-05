@@ -2,15 +2,19 @@
 Audio Worker FastAPI Server
 
 HTTP API for the GPU Audio Worker.
-Exposes endpoints for audio processing and RAG queries.
+Exposes endpoints for audio processing, RAG queries, and real-time telemetry.
+
+Telemetry (migrated from Agent 0 "Visual_feedback_layer.py"):
+- /ws/monitor: 60Hz WebSocket stream of system + GPU + job metrics
+- /status: single-shot JSON snapshot (polling fallback)
 """
 
 import time
 import logging
 import asyncio
-from functools import partial
-from typing import Dict, Any, Optional
-from fastapi import FastAPI, HTTPException
+from collections import deque
+from typing import Dict, Any, Optional, List
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 import uvicorn
 
@@ -21,8 +25,16 @@ logger = logging.getLogger('maaps.audio_worker')
 app = FastAPI(
     title="MAAPS Audio Worker API",
     description="GPU-accelerated audio processing for HeartMuLa, Demucs, RVC, and LUFS normalization",
-    version="1.0.0"
+    version="1.1.0"
 )
+
+# Optional psutil (telemetry degrades gracefully without it)
+try:
+    import psutil
+    HAS_PSUTIL = True
+except ImportError:
+    HAS_PSUTIL = False
+    logger.warning("psutil not installed - CPU/memory telemetry disabled")
 
 
 # =====================================
@@ -71,6 +83,146 @@ async def health_check():
 
 
 # =====================================
+# Telemetry (from Agent 0 Visual Feedback Layer)
+# =====================================
+
+# In-memory job metrics: rolling window of recent jobs + counters
+JOB_METRICS = {
+    'counts': {'submitted': 0, 'complete': 0, 'error': 0},
+    'by_type': {},                      # job_type -> count
+    'recent': deque(maxlen=100),        # [{ts, job_type, ms, status}]
+}
+# Monotonic latency tracker for last N jobs (ms)
+JOB_LATENCY_MS = deque(maxlen=50)
+
+
+def record_job_submitted(job_type: str):
+    JOB_METRICS['counts']['submitted'] += 1
+    JOB_METRICS['by_type'][job_type] = JOB_METRICS['by_type'].get(job_type, 0) + 1
+    JOB_METRICS['recent'].append({
+        'ts': time.time(), 'job_type': job_type, 'status': 'submitted', 'ms': None
+    })
+
+
+def record_job_finished(job_type: str, started_at: float, success: bool):
+    ms = (time.time() - started_at) * 1000.0
+    JOB_METRICS['counts']['complete' if success else 'error'] += 1
+    JOB_METRICS['recent'].append({
+        'ts': time.time(), 'job_type': job_type,
+        'status': 'complete' if success else 'error', 'ms': round(ms, 1),
+    })
+    JOB_LATENCY_MS.append(ms)
+
+
+def _gpu_metrics() -> Dict[str, Any]:
+    """GPU telemetry (torch optional, degrades gracefully)."""
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            return {'gpu_available': False, 'gpu_name': None,
+                    'vram_used_mb': None, 'vram_total_mb': None,
+                    'util_pct': None}
+        name = torch.cuda.get_device_name(0)
+        vram_used = torch.cuda.memory_allocated(0) / (1024 * 1024)
+        vram_total = torch.cuda.get_device_properties(0).total_memory / (1024 * 1024)
+        util = None
+        try:
+            util = torch.cuda.utilization(0)  # requires pynvml; optional
+        except Exception:
+            pass
+        return {'gpu_available': True, 'gpu_name': name,
+                'vram_used_mb': round(vram_used, 1),
+                'vram_total_mb': round(vram_total, 1),
+                'util_pct': util}
+    except ImportError:
+        return {'gpu_available': False, 'gpu_name': None,
+                'vram_used_mb': None, 'vram_total_mb': None, 'util_pct': None}
+
+
+def _system_metrics() -> Dict[str, Any]:
+    """CPU/memory telemetry (psutil optional)."""
+    if not HAS_PSUTIL:
+        return {'cpu_load': None, 'mem_used_pct': None, 'mem_used_mb': None}
+    return {
+        'cpu_load': psutil.cpu_percent(interval=None),
+        'mem_used_pct': psutil.virtual_memory().percent,
+        'mem_used_mb': round(psutil.virtual_memory().used / (1024 * 1024), 1),
+    }
+
+
+def _latency_stats() -> Dict[str, Optional[float]]:
+    if not JOB_LATENCY_MS:
+        return {'avg_ms': None, 'p95_ms': None, 'last_ms': None}
+    ordered = sorted(JOB_LATENCY_MS)
+    p95_idx = min(len(ordered) - 1, int(len(ordered) * 0.95))
+    return {
+        'avg_ms': round(sum(ordered) / len(ordered), 1),
+        'p95_ms': round(ordered[p95_idx], 1),
+        'last_ms': round(ordered[-1], 1),
+    }
+
+
+def collect_metrics() -> Dict[str, Any]:
+    """One telemetry snapshot: system + GPU + jobs. Used by /status and /ws/monitor."""
+    return {
+        'timestamp': time.time(),
+        'system': _system_metrics(),
+        'gpu': _gpu_metrics(),
+        'jobs': {
+            'counts': dict(JOB_METRICS['counts']),
+            'by_type': dict(JOB_METRICS['by_type']),
+            'latency': _latency_stats(),
+            'recent': list(JOB_METRICS['recent'])[-10:],
+        },
+    }
+
+
+@app.get("/status")
+async def status_snapshot():
+    """Single-shot telemetry snapshot (polling fallback for /ws/monitor)."""
+    return collect_metrics()
+
+
+@app.websocket("/ws/monitor")
+async def monitor_agents(websocket: WebSocket):
+    """
+    Real-time telemetry stream (60Hz target, 1Hz floor).
+
+    Streams collect_metrics() JSON. Client may send:
+      - {"action": "set_interval", "interval": 0.5}  (seconds, clamped 0.016-1.0)
+      - {"action": "pause"} / {"action": "resume"}
+    """
+    await websocket.accept()
+    interval = 1 / 60  # 60Hz default
+    paused = False
+    try:
+        while True:
+            # Non-blocking receive: handle client control messages if any
+            try:
+                msg = await asyncio.wait_for(websocket.receive_json(), timeout=interval)
+                action = msg.get('action')
+                if action == 'set_interval':
+                    interval = max(0.016, min(1.0, float(msg.get('interval', interval))))
+                elif action == 'pause':
+                    paused = True
+                elif action == 'resume':
+                    paused = False
+            except asyncio.TimeoutError:
+                pass
+            except WebSocketDisconnect:
+                break
+
+            if not paused:
+                await websocket.send_json(collect_metrics())
+            else:
+                await asyncio.sleep(interval)
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.debug(f"Monitor websocket closed: {e}")
+
+
+# =====================================
 # Model Management
 # =====================================
 
@@ -114,30 +266,39 @@ async def process_audio(request: AudioJobRequest):
     """
     logger.info(f"Received job: {request.job_type}")
     
+    started_at = time.time()
+    record_job_submitted(request.job_type)
+    
+    success = False
     try:
         if request.job_type == "heartmula_generate":
-            return await _process_heartmula(request)
-        
+            result = await _process_heartmula(request)
         elif request.job_type == "demucs_split":
-            return await _process_demucs(request)
-        
+            result = await _process_demucs(request)
         elif request.job_type == "rvc_clone":
-            return await _process_rvc(request)
-        
+            result = await _process_rvc(request)
         elif request.job_type == "lufs_normalize":
-            return await _process_lufs(request)
-        
+            result = await _process_lufs(request)
         else:
             raise HTTPException(
                 status_code=400,
                 detail=f"Unknown job type: {request.job_type}"
             )
+        
+        # Handlers may return {"status": "error", ...} instead of raising
+        success = isinstance(result, dict) and result.get('status') == 'complete'
+        return result
     
     except HTTPException:
+        record_job_finished(request.job_type, started_at, success=False)
         raise
     except Exception as e:
         logger.error(f"Processing error: {e}")
+        record_job_finished(request.job_type, started_at, success=False)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if not JOB_METRICS['recent'] or JOB_METRICS['recent'][-1]['status'] == 'submitted':
+            record_job_finished(request.job_type, started_at, success=success)
 
 
 async def _process_heartmula(request: AudioJobRequest):
