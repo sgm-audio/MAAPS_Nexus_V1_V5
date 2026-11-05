@@ -17,6 +17,14 @@ from dataclasses import dataclass
 import logging
 
 from core import BaseAgent, Message, Topics, Priority
+from agents.email_variants import (
+    TrackingManager,
+    render_email,
+    select_variant,
+    simple_substitute,
+    VARIANT_KEYS,
+    HAS_JINJA2,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +37,12 @@ class Campaign:
     template: str
     voice_model_id: Optional[str] = None
     status: str = "draft"
+    voice_enabled: bool = True  # Per-campaign voice toggle
+    # Variant system (from Agent 0 migration)
+    # None/empty -> legacy template path; else variant key | 'rotate' | 'random'
+    variant: Optional[str] = None
+    sender: str = "Scott Mills\nAI Audio Architect | SGM Studios\nCreator of MAAPS"
+    loom_url: str = "https://www.loom.com/share/YOUR_ARCHITECT_VIDEO"
 
 
 @dataclass
@@ -40,6 +54,8 @@ class OutboundMessage:
     lead_name: str
     lead_email: str
     personalized_text: str
+    subject: str = ""                    # Rendered subject line
+    variant_name: str = ""               # Which template variant was used
     audio_path: Optional[str] = None
     email_sent: bool = False
 
@@ -80,6 +96,24 @@ class OutboundAgent(BaseAgent):
         
         # Templates
         self._default_email_template = ""
+        
+        # Variant rendering + tracking (Agent 0 migration)
+        self._tracking_base_url = getattr(self.config, 'tracking_base_url',
+                                          'https://sgm-audio.io')
+        self._tracking_log_path = getattr(self.config, 'tracking_log_path', None)
+        self.tracker = TrackingManager(
+            base_url=self._tracking_base_url,
+            log_path=self._tracking_log_path,
+        )
+        self._lead_counter = 0  # For rotate/random variant selection
+        
+        # LLM personalization config
+        self._llm_enabled = getattr(self.config, 'outbound_llm_enabled', True)
+        self._llm_provider = getattr(self.config, 'outbound_llm_provider', 'openai')  # openai, anthropic, local
+        self._llm_model = getattr(self.config, 'outbound_llm_model', 'gpt-4o-mini')
+        self._llm_temperature = getattr(self.config, 'outbound_llm_temperature', 0.7)
+        self._llm_max_tokens = getattr(self.config, 'outbound_llm_max_tokens', 500)
+        self._llm_timeout = getattr(self.config, 'outbound_llm_timeout', 30.0)
     
     def setup(self):
         """Initialize outbound agent"""
@@ -186,8 +220,13 @@ class OutboundAgent(BaseAgent):
         Expected payload:
             - campaign_id: Unique campaign ID
             - name: Campaign name
-            - template: Email/voice template
+            - template: Legacy email/voice template
             - voice_model_id: Optional voice model for audio
+            - voice_enabled: Optional boolean to enable/disable voice (default True)
+            - variant: Email variant key, 'rotate', or 'random'
+              (default: 'variant_b_margin'; see agents/email_variants.py)
+            - sender: Signature block (default: SGM Studios)
+            - loom_url: Architecture video URL for variants C/D
         """
         payload = message.payload
         
@@ -196,13 +235,22 @@ class OutboundAgent(BaseAgent):
             name=payload.get('name', 'Unnamed Campaign'),
             template=payload.get('template', ''),
             voice_model_id=payload.get('voice_model_id'),
-            status='active'
+            status='active',
+            voice_enabled=payload.get('voice_enabled', True),
+            variant=payload.get('variant'),  # None -> legacy template path
+            sender=payload.get('sender',
+                               "Scott Mills\nAI Audio Architect | SGM Studios\nCreator of MAAPS"),
+            loom_url=payload.get('loom_url',
+                                 "https://www.loom.com/share/YOUR_ARCHITECT_VIDEO"),
         )
         
         with self.campaigns_lock:
             self.campaigns[campaign.campaign_id] = campaign
         
-        self.log("INFO", f"Campaign started: {campaign.name}")
+        self.log("INFO", f"Campaign started: {campaign.name} "
+                         f"(variant={campaign.variant}, "
+                         f"voice_enabled={campaign.voice_enabled}, "
+                         f"voice_model={campaign.voice_model_id})")
         
         self.respond(message, {
             'success': True,
@@ -245,8 +293,11 @@ class OutboundAgent(BaseAgent):
         with self.campaigns_lock:
             campaign = self.campaigns.get(campaign_id)
         
-        # Generate personalized message
+        # Generate personalized message + subject (variant selection advances
+        # per lead for rotate/random campaigns)
         personalized = self._personalize_message(lead, campaign)
+        subject, variant_name = self._render_subject(lead, campaign)
+        self._lead_counter += 1
         
         # Create outbound message
         outbound = OutboundMessage(
@@ -255,7 +306,9 @@ class OutboundAgent(BaseAgent):
             lead_id=lead.get('id', ''),
             lead_name=lead.get('name', ''),
             lead_email=lead.get('email', ''),
-            personalized_text=personalized
+            personalized_text=personalized,
+            subject=subject,
+            variant_name=variant_name,
         )
         
         # Queue for processing
@@ -265,17 +318,237 @@ class OutboundAgent(BaseAgent):
         self.log("INFO", f"Lead queued: {outbound.lead_name}")
     
     def _personalize_message(self, lead: Dict, campaign: Optional[Campaign]) -> str:
-        """Generate personalized message for lead"""
-        template = campaign.template if campaign else self._default_template()
+        """Generate personalized message for lead.
         
-        # Simple template substitution
-        personalized = template.replace('{name}', lead.get('name', 'there'))
-        personalized = personalized.replace('{company}', lead.get('company', 'your company'))
-        personalized = personalized.replace('{bio}', lead.get('bio', '')[:100] if lead.get('bio') else '')
+        Priority:
+        1. LLM generation (if enabled) using variant template as reference
+        2. Jinja2 variant rendering (if jinja2 available)
+        3. Simple {name}/{company} substitution (always works)
+        """
+        template = campaign.template if campaign and campaign.template else self._default_template()
         
-        # TODO: Use LLM for more sophisticated personalization
+        # Try LLM-based personalization first if enabled
+        if self._llm_enabled:
+            try:
+                personalized = self._llm_personalize(lead, template)
+                if personalized and personalized.strip():
+                    self.log("DEBUG", f"LLM personalization successful for {lead.get('name')}")
+                    return personalized
+            except Exception as e:
+                self.log("WARNING", f"LLM personalization failed, falling back to template: {e}")
         
-        return personalized
+        # Variant rendering (jinja2) - the Agent 0 email system.
+        # Only when campaign explicitly opts in via variant field.
+        if campaign and campaign.variant and HAS_JINJA2:
+            try:
+                variant_key = select_variant(campaign.variant, self._lead_counter)
+                _, body, variant_name = render_email(
+                    lead, variant_key, self.tracker,
+                    sender=campaign.sender,
+                    loom_url=campaign.loom_url,
+                )
+                self.log("DEBUG", f"Variant rendered: {variant_name} for {lead.get('company')}")
+                return body
+            except Exception as e:
+                self.log("WARNING", f"Variant rendering failed, using simple substitution: {e}")
+        
+        # Fallback: Simple template substitution
+        return simple_substitute(template, lead)
+
+    def _render_subject(self, lead: Dict, campaign: Optional[Campaign]) -> tuple:
+        """Render subject line + variant name for a lead.
+        
+        Returns (subject, variant_name). Falls back to legacy subject format.
+        """
+        if campaign and campaign.variant and HAS_JINJA2:
+            try:
+                variant_key = select_variant(campaign.variant, self._lead_counter)
+                subject, _, variant_name = render_email(
+                    lead, variant_key, self.tracker,
+                    sender=campaign.sender,
+                    loom_url=campaign.loom_url,
+                )
+                return subject, variant_name
+            except Exception as e:
+                self.log("WARNING", f"Subject rendering failed: {e}")
+        return f"Quick question for {lead.get('name', 'there')}", ""
+
+    def _llm_personalize(self, lead: Dict, template: str) -> str:
+        """
+        Generate personalized message using LLM.
+        
+        Tries MessageBus request first (for dedicated LLM agent), 
+        then falls back to direct API call.
+        """
+        # Build prompt with lead data and template
+        prompt = self._build_personalization_prompt(lead, template)
+        
+        # Try MessageBus request to LLM agent
+        response = self.request(Topics.LLM_GENERATE, {
+            'prompt': prompt,
+            'model': self._llm_model,
+            'temperature': self._llm_temperature,
+            'max_tokens': self._llm_max_tokens,
+            'provider': self._llm_provider
+        }, timeout=self._llm_timeout)
+        
+        if response and response.payload.get('success'):
+            generated = response.payload.get('text', '').strip()
+            if generated:
+                return generated
+        
+        # Fallback to direct LLM API call
+        return self._direct_llm_call(prompt)
+
+    def _build_personalization_prompt(self, lead: Dict, template: str) -> str:
+        """Build the LLM prompt for personalization"""
+        lead_name = lead.get('name', 'there')
+        lead_company = lead.get('company', 'your company')
+        lead_bio = lead.get('bio', '')[:300] if lead.get('bio') else 'No bio available'
+        lead_title = lead.get('title', '')
+        lead_location = lead.get('location', '')
+        lead_linkedin = lead.get('linkedin_url', '')
+        
+        prompt = f"""You are an expert B2B sales copywriter. Write a personalized cold outreach email.
+
+LEAD INFORMATION:
+- Name: {lead_name}
+- Company: {lead_company}
+- Title: {lead_title or 'Not specified'}
+- Location: {lead_location or 'Not specified'}
+- LinkedIn: {lead_linkedin or 'Not provided'}
+- Bio/Summary: {lead_bio}
+
+CAMPAIGN TEMPLATE (reference style/tone):
+{template}
+
+INSTRUCTIONS:
+1. Write a personalized, natural-sounding cold email
+2. Reference specific details from the lead's bio/company
+3. Keep it concise (under 150 words)
+4. Professional but conversational tone
+5. Clear, low-friction call-to-action (e.g., "Open to a brief chat?")
+6. Sign off as "Scott" from "Hivyr AI Agency"
+7. Do NOT include placeholders like {{name}} - use actual values
+8. Output ONLY the email body, no explanations
+
+PERSONALIZED EMAIL:"""
+        return prompt
+
+    def _direct_llm_call(self, prompt: str) -> str:
+        """
+        Direct LLM API call as fallback.
+        Supports OpenAI, Anthropic, and local transformers.
+        """
+        provider = self._llm_provider.lower()
+        
+        try:
+            if provider == 'openai':
+                return self._call_openai(prompt)
+            elif provider == 'anthropic':
+                return self._call_anthropic(prompt)
+            elif provider == 'local':
+                return self._call_local_llm(prompt)
+            else:
+                self.log("WARNING", f"Unknown LLM provider: {provider}")
+                return ""
+        except Exception as e:
+            self.log("ERROR", f"Direct LLM call failed: {e}")
+            return ""
+
+    def _call_openai(self, prompt: str) -> str:
+        """Call OpenAI API"""
+        try:
+            import openai
+            api_key = getattr(self.config, 'openai_api_key', None) or getattr(self.config, 'OPENAI_API_KEY', None)
+            if not api_key:
+                self.log("WARNING", "OpenAI API key not configured")
+                return ""
+            
+            client = openai.OpenAI(api_key=api_key)
+            response = client.chat.completions.create(
+                model=self._llm_model,
+                messages=[
+                    {"role": "system", "content": "You are an expert B2B sales copywriter."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=self._llm_temperature,
+                max_tokens=self._llm_max_tokens
+            )
+            return response.choices[0].message.content.strip()
+        except ImportError:
+            self.log("WARNING", "openai package not installed")
+            return ""
+        except Exception as e:
+            self.log("ERROR", f"OpenAI API error: {e}")
+            return ""
+
+    def _call_anthropic(self, prompt: str) -> str:
+        """Call Anthropic API"""
+        try:
+            import anthropic
+            api_key = getattr(self.config, 'anthropic_api_key', None) or getattr(self.config, 'ANTHROPIC_API_KEY', None)
+            if not api_key:
+                self.log("WARNING", "Anthropic API key not configured")
+                return ""
+            
+            client = anthropic.Anthropic(api_key=api_key)
+            response = client.messages.create(
+                model=self._llm_model,
+                max_tokens=self._llm_max_tokens,
+                temperature=self._llm_temperature,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return response.content[0].text.strip()
+        except ImportError:
+            self.log("WARNING", "anthropic package not installed")
+            return ""
+        except Exception as e:
+            self.log("ERROR", f"Anthropic API error: {e}")
+            return ""
+
+    def _call_local_llm(self, prompt: str) -> str:
+        """Call local transformers model"""
+        try:
+            from transformers import AutoTokenizer, AutoModelForCausalLM
+            import torch
+            
+            model_name = getattr(self.config, 'local_llm_model', 'microsoft/Phi-3-mini-4k-instruct')
+            
+            # Load model (cached)
+            if not hasattr(self, '_local_llm_model') or self._local_llm_model is None:
+                self.log("INFO", f"Loading local LLM: {model_name}")
+                self._local_llm_tokenizer = AutoTokenizer.from_pretrained(model_name)
+                self._local_llm_model = AutoModelForCausalLM.from_pretrained(
+                    model_name,
+                    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                    device_map="auto" if torch.cuda.is_available() else None
+                )
+            
+            inputs = self._local_llm_tokenizer(prompt, return_tensors="pt")
+            if torch.cuda.is_available():
+                inputs = {k: v.cuda() for k, v in inputs.items()}
+            
+            with torch.no_grad():
+                outputs = self._local_llm_model.generate(
+                    **inputs,
+                    max_new_tokens=self._llm_max_tokens,
+                    temperature=self._llm_temperature,
+                    do_sample=True,
+                    pad_token_id=self._local_llm_tokenizer.eos_token_id
+                )
+            
+            generated = self._local_llm_tokenizer.decode(
+                outputs[0][inputs['input_ids'].shape[1]:], 
+                skip_special_tokens=True
+            )
+            return generated.strip()
+        except ImportError:
+            self.log("WARNING", "transformers/torch not installed for local LLM")
+            return ""
+        except Exception as e:
+            self.log("ERROR", f"Local LLM error: {e}")
+            return ""
     
     def _default_template(self) -> str:
         """Default outbound template"""
@@ -345,7 +618,8 @@ Hivyr AI Agency"""
                 self.publish(Topics.OUTBOUND_COMPLETE, {
                     'message_id': message.message_id,
                     'lead_email': message.lead_email,
-                    'has_audio': message.audio_path is not None
+                    'has_audio': message.audio_path is not None,
+                    'variant': message.variant_name,
                 })
                 
                 self.log("INFO", f"Outbound sent: {message.lead_email}")
@@ -356,16 +630,89 @@ Hivyr AI Agency"""
             self.log("ERROR", f"Outbound processing error: {e}")
     
     def _should_generate_voice(self, message: OutboundMessage) -> bool:
-        """Check if we should generate voice for this message"""
-        # TODO: Check campaign settings
-        return False  # Disabled by default
+        """Check if we should generate voice for this message
+        
+        Checks:
+        1. Campaign exists and is active
+        2. Campaign has voice_enabled=True
+        3. Campaign has a voice_model_id configured
+        4. Audio worker is available (GPU, model loaded)
+        """
+        # Get campaign for this message
+        with self.campaigns_lock:
+            campaign = self.campaigns.get(message.campaign_id)
+        
+        if not campaign:
+            self.log("DEBUG", f"No campaign found for message {message.message_id}, skipping voice")
+            return False
+        
+        # Check 1: Campaign must be active
+        if campaign.status != 'active':
+            self.log("DEBUG", f"Campaign {campaign.campaign_id} not active (status={campaign.status}), skipping voice")
+            return False
+        
+        # Check 2: Voice must be enabled for this campaign
+        if not campaign.voice_enabled:
+            self.log("DEBUG", f"Voice disabled for campaign {campaign.campaign_id}, skipping voice")
+            return False
+        
+        # Check 3: Campaign must have a voice model configured
+        if not campaign.voice_model_id:
+            self.log("DEBUG", f"No voice_model_id configured for campaign {campaign.campaign_id}, skipping voice")
+            return False
+        
+        # Check 4: Audio worker must be available
+        if not self._is_audio_worker_available(campaign.voice_model_id):
+            self.log("WARNING", f"Audio worker unavailable for model {campaign.voice_model_id}, skipping voice")
+            return False
+        
+        self.log("INFO", f"Voice generation enabled for message {message.message_id} (campaign={campaign.campaign_id}, model={campaign.voice_model_id})")
+        return True
+    
+    def _is_audio_worker_available(self, voice_model_id: str) -> bool:
+        """Check if audio worker is available and has the model loaded
+        
+        Queries the audio worker via MessageBus to check:
+        - GPU availability
+        - Model loaded/ready
+        - Worker responding to health checks
+        """
+        try:
+            # Send health check request to audio worker
+            response = self.request(Topics.AUDIO_WORKER_HEALTH, {
+                'check_model': voice_model_id
+            }, timeout=5.0)
+            
+            if not response:
+                self.log("DEBUG", "Audio worker health check: no response")
+                return False
+            
+            payload = response.payload
+            success = payload.get('success', False)
+            gpu_available = payload.get('gpu_available', False)
+            model_loaded = payload.get('model_loaded', False)
+            model_ready = payload.get('model_ready', False)
+            
+            self.log("DEBUG", f"Audio worker health: success={success}, gpu={gpu_available}, model_loaded={model_loaded}, model_ready={model_ready}")
+            
+            return success and gpu_available and model_loaded and model_ready
+            
+        except Exception as e:
+            self.log("WARNING", f"Audio worker health check failed: {e}")
+            return False
     
     def _generate_voice(self, message: OutboundMessage) -> Optional[str]:
         """Generate voice audio using HeartMuLa or ElevenLabs"""
+        # Get campaign to find the voice model
+        with self.campaigns_lock:
+            campaign = self.campaigns.get(message.campaign_id)
+        
+        voice_model = campaign.voice_model_id if campaign else None
+        
         # Request voice generation from audio worker
         response = self.request(Topics.OUTBOUND_VOICE_GENERATE, {
             'text': message.personalized_text,
-            'voice_model': None  # Use default
+            'voice_model': voice_model
         }, timeout=60.0)
         
         if response and response.payload.get('success'):
@@ -383,11 +730,11 @@ Hivyr AI Agency"""
             
             smtp_user = self.config.smtp_user
             
-            # Create message
+            # Create message (subject from variant renderer when available)
             msg = MIMEMultipart()
             msg['From'] = smtp_user
             msg['To'] = message.lead_email
-            msg['Subject'] = f"Quick question for {message.lead_name}"
+            msg['Subject'] = message.subject or f"Quick question for {message.lead_name}"
             
             # Add text body
             msg.attach(MIMEText(message.personalized_text, 'plain'))
