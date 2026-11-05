@@ -52,6 +52,10 @@ class Topics:
     AUDIO_JOB_COMPLETE = "audio.job.complete"
     AUDIO_JOB_FAILED = "audio.job.failed"
     
+    # Audio Worker Health
+    AUDIO_WORKER_HEALTH = "audio.worker.health"
+    AUDIO_WORKER_HEALTH_RESPONSE = "audio.worker.health.response"
+    
     # Stem Separation
     AUDIO_DEMUCS_START = "audio.demucs.start"
     AUDIO_DEMUCS_COMPLETE = "audio.demucs.complete"
@@ -75,6 +79,12 @@ class Topics:
     RAG_RESPONSE = "rag.response"
     RAG_INDEX_DOC = "rag.index.doc"
     RAG_INDEX_COMPLETE = "rag.index.complete"
+    
+    # ==========================================
+    # LLM (Text Generation)
+    # ==========================================
+    LLM_GENERATE = "llm.generate"
+    LLM_RESPONSE = "llm.response"
     
     # ==========================================
     # AGENT MESH (V4: Ray Distribution)

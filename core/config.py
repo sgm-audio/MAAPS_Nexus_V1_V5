@@ -54,6 +54,19 @@ class Config:
     # Timezone
     timezone: str = "America/Regina"
     
+    # LLM Configuration (Outbound Personalization)
+    outbound_llm_enabled: bool = True
+    outbound_llm_provider: str = "openai"  # openai, anthropic, local
+    outbound_llm_model: str = "gpt-4o-mini"
+    outbound_llm_temperature: float = 0.7
+    outbound_llm_max_tokens: int = 500
+    outbound_llm_timeout: float = 30.0
+    
+    # LLM API Keys
+    openai_api_key: str = ""
+    anthropic_api_key: str = ""
+    local_llm_model: str = "microsoft/Phi-3-mini-4k-instruct"
+    
     @classmethod
     def from_env(cls) -> 'Config':
         """Load configuration from environment variables"""
@@ -78,7 +91,18 @@ class Config:
             smtp_user=os.getenv("SMTP_USER", ""),
             smtp_password=os.getenv("SMTP_PASSWORD", ""),
             sgm_studios_path=os.getenv("SGM_STUDIOS_PATH", "/mnt/sgm_studios"),
-            timezone=os.getenv("TZ", "America/Regina")
+            timezone=os.getenv("TZ", "America/Regina"),
+            # LLM Configuration
+            outbound_llm_enabled=os.getenv("OUTBOUND_LLM_ENABLED", "true").lower() == "true",
+            outbound_llm_provider=os.getenv("OUTBOUND_LLM_PROVIDER", "openai"),
+            outbound_llm_model=os.getenv("OUTBOUND_LLM_MODEL", "gpt-4o-mini"),
+            outbound_llm_temperature=float(os.getenv("OUTBOUND_LLM_TEMPERATURE", "0.7")),
+            outbound_llm_max_tokens=int(os.getenv("OUTBOUND_LLM_MAX_TOKENS", "500")),
+            outbound_llm_timeout=float(os.getenv("OUTBOUND_LLM_TIMEOUT", "30.0")),
+            # LLM API Keys
+            openai_api_key=os.getenv("OPENAI_API_KEY", ""),
+            anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
+            local_llm_model=os.getenv("LOCAL_LLM_MODEL", "microsoft/Phi-3-mini-4k-instruct")
         )
     
     @property

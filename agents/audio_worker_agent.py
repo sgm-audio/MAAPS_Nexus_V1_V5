@@ -92,8 +92,14 @@ class AudioWorkerAgent(BaseAgent):
         self.subscribe(Topics.AUDIO_RVC_CLONE)
         self.subscribe(Topics.AUDIO_LUFS_NORMALIZE)
         
+        # Subscribe to health check topic
+        self.subscribe(Topics.AUDIO_WORKER_HEALTH)
+        
         # Start worker thread
         self._start_worker()
+        
+        # Check GPU on startup
+        self._check_gpu()
         
         self.log("INFO", "Audio Worker Agent initialized (Proxy Mode)")
     
@@ -138,6 +144,9 @@ class AudioWorkerAgent(BaseAgent):
             
             elif message.topic == Topics.AUDIO_LUFS_NORMALIZE:
                 self._handle_lufs_normalize(message)
+            
+            elif message.topic == Topics.AUDIO_WORKER_HEALTH:
+                self._handle_health_check(message)
             
             else:
                 self.log("DEBUG", f"Unhandled topic: {message.topic}")
@@ -303,6 +312,80 @@ class AudioWorkerAgent(BaseAgent):
             'success': True,
             'job_id': job.job_id,
             'status': 'queued'
+        })
+
+    def _handle_health_check(self, message: Message):
+        """
+        Handle health check request from outbound agent.
+        
+        Expected payload:
+            - check_model: Optional voice model ID to verify
+        
+        Response payload:
+            - success: bool
+            - gpu_available: bool
+            - model_loaded: bool
+            - model_ready: bool
+            - gpu_device: str
+            - queued_jobs: int
+            - processing_jobs: int
+        """
+        payload = message.payload
+        check_model = payload.get('check_model')
+        
+        # Check GPU
+        gpu_available = self.gpu_available
+        gpu_device = self.gpu_device
+        
+        # Check if model is loaded (in proxy mode, we check if worker API is reachable)
+        model_loaded = False
+        model_ready = False
+        
+        if check_model:
+            # In proxy mode, we can't easily check specific model loading
+            # We just check if the worker API is reachable
+            try:
+                worker_host = os.getenv('GPU_WORKER_HOST', 'audio_worker')
+                worker_port = os.getenv('GPU_WORKER_PORT', '8000')
+                import httpx
+                with httpx.Client(timeout=3.0) as client:
+                    response = client.get(f"http://{worker_host}:{worker_port}/health")
+                    if response.status_code == 200:
+                        health = response.json()
+                        model_loaded = health.get('gpu_available', False)
+                        model_ready = model_loaded
+            except Exception:
+                pass
+        else:
+            # General health check
+            try:
+                worker_host = os.getenv('GPU_WORKER_HOST', 'audio_worker')
+                worker_port = os.getenv('GPU_WORKER_PORT', '8000')
+                import httpx
+                with httpx.Client(timeout=3.0) as client:
+                    response = client.get(f"http://{worker_host}:{worker_port}/health")
+                    if response.status_code == 200:
+                        health = response.json()
+                        model_loaded = health.get('gpu_available', False)
+                        model_ready = model_loaded
+            except Exception:
+                pass
+        
+        # Count jobs
+        with self.jobs_lock:
+            queued = sum(1 for j in self.jobs.values() if j.status == JobStatus.PENDING)
+            processing = sum(1 for j in self.jobs.values() if j.status == JobStatus.PROCESSING)
+        
+        success = gpu_available and model_loaded and model_ready
+        
+        self.respond(message, {
+            'success': success,
+            'gpu_available': gpu_available,
+            'model_loaded': model_loaded,
+            'model_ready': model_ready,
+            'gpu_device': gpu_device,
+            'queued_jobs': queued,
+            'processing_jobs': processing
         })
     
     def _queue_job(self, job: AudioJob):

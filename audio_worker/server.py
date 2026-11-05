@@ -133,6 +133,8 @@ async def process_audio(request: AudioJobRequest):
                 detail=f"Unknown job type: {request.job_type}"
             )
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Processing error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
