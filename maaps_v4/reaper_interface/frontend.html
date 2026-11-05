@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MAAPS v4.0 | REAPER Neural Interface</title>
+    <style>
+        :root {
+            --bg-primary: #0a0e1a;
+            --bg-secondary: #121826;
+            --bg-tertiary: #1a2236;
+            --accent-cyan: #00f5ff;
+            --accent-magenta: #ff00ff;
+            --accent-green: #00ff88;
+            --accent-yellow: #ffdd00;
+            --accent-red: #ff4444;
+            --text-primary: #e0e6ff;
+            --text-secondary: #8892b0;
+            --border-color: #2a3550;
+            --glow-cyan: 0 0 10px rgba(0, 245, 255, 0.5);
+            --glow-magenta: 0 0 10px rgba(255, 0, 255, 0.5);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Roboto Mono', monospace;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Animated background grid */
+        .cyber-grid {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(0, 245, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 245, 255, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            animation: gridMove 20s linear infinite;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        @keyframes gridMove {
+            0% { transform: translateY(0); }
+            100% { transform: translateY(50px); }
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 20px;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Header */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 0;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 30px;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .logo-icon {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-magenta));
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: bold;
+            box-shadow: var(--glow-cyan);
+        }
+
+        .logo h1 {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            background: linear-gradient(90deg, var(--accent-cyan), var(--accent-magenta));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status-bar {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            box-shadow: 0 0 8px var(--accent-green);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .status-dot.disconnected {
+            background: var(--accent-red);
+            box-shadow: 0 0 8px var(--accent-red);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Main Grid */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 350px 1fr 350px;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .panel-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--accent-cyan);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Form Elements */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 13px;
+            transition: all 0.3s ease;
+        }
+
+        input:focus,
+        textarea:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--accent-cyan);
+            box-shadow: var(--glow-cyan);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 120px;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 14px 20px;
+            background: linear-gradient(135deg, var(--accent-cyan), #00b8cc);
+            border: none;
+            border-radius: 4px;
+            color: var(--bg-primary);
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--glow-cyan);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--accent-magenta);
+            box-shadow: var(--glow-magenta);
+        }
+
+        .btn-generate {
+            background: linear-gradient(135deg, var(--accent-magenta), #cc00cc);
+        }
+
+        .btn-generate:hover {
+            box-shadow: var(--glow-magenta);
+        }
+
+        /* Telemetry Display */
+        .telemetry-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .telemetry-item {
+            background: var(--bg-tertiary);
+            padding: 12px;
+            border-radius: 4px;
+            border-left: 3px solid var(--accent-cyan);
+        }
+
+        .telemetry-label {
+            font-size: 10px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .telemetry-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--accent-cyan);
+        }
+
+        .telemetry-unit {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-left: 4px;
+        }
+
+        /* Track List */
+        .track-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .track-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            margin-bottom: 8px;
+            border: 1px solid transparent;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .track-item:hover {
+            border-color: var(--accent-cyan);
+            transform: translateX(5px);
+        }
+
+        .track-item.selected {
+            border-color: var(--accent-magenta);
+            background: rgba(255, 0, 255, 0.1);
+        }
+
+        .track-color {
+            width: 4px;
+            height: 40px;
+            border-radius: 2px;
+            background: var(--accent-cyan);
+        }
+
+        .track-info {
+            flex: 1;
+        }
+
+        .track-name {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .track-meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        /* Waveform Visualizer */
+        .waveform-container {
+            height: 120px;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            margin-bottom: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .waveform {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            padding: 0 10px;
+        }
+
+        .waveform-bar {
+            flex: 1;
+            background: linear-gradient(to top, var(--accent-cyan), var(--accent-magenta));
+            border-radius: 2px;
+            transition: height 0.1s ease;
+        }
+
+        /* Console Log */
+        .console-log {
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            padding: 15px;
+            font-family: 'Roboto Mono', monospace;
+            font-size: 11px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 8px;
+            border-left: 3px solid var(--accent-cyan);
+            background: rgba(0, 245, 255, 0.05);
+        }
+
+        .log-entry.error {
+            border-left-color: var(--accent-red);
+            background: rgba(255, 68, 68, 0.05);
+        }
+
+        .log-entry.success {
+            border-left-color: var(--accent-green);
+            background: rgba(0, 255, 136, 0.05);
+        }
+
+        .log-time {
+            color: var(--text-secondary);
+            margin-right: 10px;
+        }
+
+        /* Progress Bar */
+        .progress-container {
+            margin-top: 20px;
+            display: none;
+        }
+
+        .progress-bar {
+            height: 4px;
+            background: var(--bg-tertiary);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-cyan), var(--accent-magenta));
+            width: 0%;
+            transition: width 0.3s ease;
+            animation: progressGlow 2s ease-in-out infinite;
+        }
+
+        @keyframes progressGlow {
+            0%, 100% { box-shadow: 0 0 10px var(--accent-cyan); }
+            50% { box-shadow: 0 0 20px var(--accent-magenta); }
+        }
+
+        .progress-text {
+            font-size: 12px;
+            color: var(--text-secondary);
+            text-align: center;
+        }
+
+        /* Agent Status */
+        .agent-status {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .agent-card {
+            background: var(--bg-tertiary);
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+            border: 1px solid var(--border-color);
+            transition: all 0.3s ease;
+        }
+
+        .agent-card.active {
+            border-color: var(--accent-cyan);
+            box-shadow: var(--glow-cyan);
+        }
+
+        .agent-card.processing {
+            border-color: var(--accent-magenta);
+            box-shadow: var(--glow-magenta);
+        }
+
+        .agent-icon {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+
+        .agent-name {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+        }
+
+        .agent-state {
+            font-size: 10px;
+            margin-top: 4px;
+            color: var(--accent-green);
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--accent-cyan);
+        }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(10, 14, 26, 0.9);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            backdrop-filter: blur(5px);
+        }
+
+        .modal {
+            background: var(--bg-secondary);
+            border: 1px solid var(--accent-cyan);
+            border-radius: 8px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: var(--glow-cyan);
+        }
+
+        .modal h2 {
+            color: var(--accent-cyan);
+            margin-bottom: 20px;
+            font-size: 20px;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .modal-buttons .btn {
+            flex: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="cyber-grid"></div>
+
+    <div class="container">
+        <header>
+            <div class="logo">
+                <div class="logo-icon">M</div>
+                <h1>MAAPS v4.0</h1>
+            </div>
+            <div class="status-bar">
+                <div class="status-indicator">
+                    <div class="status-dot" id="reaperStatus"></div>
+                    <span id="reaperStatusText">REAPER Connected</span>
+                </div>
+                <div class="status-indicator">
+                    <div class="status-dot" id="rayStatus"></div>
+                    <span>Ray Cluster Active</span>
+                </div>
+                <div class="status-indicator">
+                    <span id="clock">00:00:00</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Agent Status Bar -->
+        <div class="agent-status">
+            <div class="agent-card" id="auditorCard">
+                <div class="agent-icon">🔍</div>
+                <div class="agent-name">Auditor</div>
+                <div class="agent-state" id="auditorState">IDLE</div>
+            </div>
+            <div class="agent-card" id="composerCard">
+                <div class="agent-icon">🎼</div>
+                <div class="agent-name">Composer</div>
+                <div class="agent-state" id="composerState">IDLE</div>
+            </div>
+            <div class="agent-card" id="alchemistCard">
+                <div class="agent-icon">⚗️</div>
+                <div class="agent-name">Alchemist</div>
+                <div class="agent-state" id="alchemistState">IDLE</div>
+            </div>
+            <div class="agent-card" id="engineerCard">
+                <div class="agent-icon">🎚️</div>
+                <div class="agent-name">Engineer</div>
+                <div class="agent-state" id="engineerState">IDLE</div>
+            </div>
+        </div>
+
+        <div class="main-grid">
+            <!-- Left Panel: Input & Controls -->
+            <div class="panel">
+                <div class="panel-header">
+                    <span class="panel-title">Generation Parameters</span>
+                </div>
+
+                <form id="generationForm">
+                    <div class="form-group">
+                        <label for="prompt">Creative Prompt</label>
+                        <textarea 
+                            id="prompt" 
+                            placeholder="Describe the sound you want... e.g., 'Heavy industrial 90s metal, NIN vibe, aggressive synths'"
+                        ></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="style">Style / Genre</label>
+                        <select id="style">
+                            <option value="electronic">Electronic</option>
+                            <option value="metal">Metal</option>
+                            <option value="rock">Rock</option>
+                            <option value="hiphop">Hip Hop</option>
+                            <option value="ambient">Ambient</option>
+                            <option value="cinematic">Cinematic</option>
+                            <option value="lofi">Lo-Fi</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="duration">Duration (seconds)</label>
+                        <input type="number" id="duration" min="5" max="300" value="60" step="5">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="bpm">BPM (Optional)</label>
+                        <input type="number" id="bpm" min="40" max="220" placeholder="Auto-detect from input">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="key">Musical Key (Optional)</label>
+                        <select id="key">
+                            <option value="">Auto-detect</option>
+                            <option value="Cmajor">C Major</option>
+                            <option value="C#major">C# Major</option>
+                            <option value="Dmajor">D Major</option>
+                            <option value="D#major">D# Major</option>
+                            <option value="Emajor">E Major</option>
+                            <option value="Fmajor">F Major</option>
+                            <option value="F#major">F# Major</option>
+                            <option value="Gmajor">G Major</option>
+                            <option value="G#major">G# Major</option>
+                            <option value="Amajor">A Major</option>
+                            <option value="A#major">A# Major</option>
+                            <option value="Bmajor">B Major</option>
+                            <option value="Cminor">C Minor</option>
+                            <option value="C#minor">C# Minor</option>
+                            <option value="Dminor">D Minor</option>
+                            <option value="D#minor">D# Minor</option>
+                            <option value="Eminor">E Minor</option>
+                            <option value="Fminor">F Minor</option>
+                            <option value="F#minor">F# Minor</option>
+                            <option value="Gminor">G Minor</option>
+                            <option value="G#minor">G# Minor</option>
+                            <option value="Aminor">A Minor</option>
+                            <option value="A#minor">A# Minor</option>
+                            <option value="Bminor">B Minor</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="lyrics">Lyrics (Optional)</label>
+                        <textarea 
+                            id="lyrics" 
+                            placeholder="[Verse]&#10;Your lyrics here...&#10;&#10;[Chorus]&#10;Chorus lyrics..."
+                            style="min-height: 80px;"
+                        ></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="targetLufs">Target LUFS</label>
+                        <select id="targetLufs">
+                            <option value="-14">-14 LUFS (Streaming)</option>
+                            <option value="-12">-12 LUFS (Modern)</option>
+                            <option value="-10">-10 LUFS (EDM)</option>
+                            <option value="-9">-9 LUFS (Metal)</option>
+                        </select>
+                    </div>
+
+                    <button type="submit" class="btn btn-generate">
+                        ⚡ Generate Stems
+                    </button>
+                </form>
+
+                <div class="progress-container" id="progressContainer">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <div class="progress-text" id="progressText">Initializing agents...</div>
+                </div>
+            </div>
+
+            <!-- Center Panel: Visualization -->
+            <div class="panel">
+                <div class="panel-header">
+                    <span class="panel-title">Audio Analysis</span>
+                </div>
+
+                <div class="waveform-container">
+                    <div class="waveform" id="waveform"></div>
+                </div>
+
+                <div class="telemetry-grid">
+                    <div class="telemetry-item">
+                        <div class="telemetry-label">BPM</div>
+                        <div class="telemetry-value" id="telemetryBpm">--<span class="telemetry-unit"></span></div>
+                    </div>
+                    <div class="telemetry-item">
+                        <div class="telemetry-label">Key</div>
+                        <div class="telemetry-value" id="telemetryKey">--</div>
+                    </div>
+                    <div class="telemetry-item">
+                        <div class="telemetry-label">LUFS</div>
+                        <div class="telemetry-value" id="telemetryLufs">--<span class="telemetry-unit">LUFS</span></div>
+                    </div>
+                    <div class="telemetry-item">
+                        <div class="telemetry-label">Peak</div>
+                        <div class="telemetry-value" id="telemetryPeak">--<span class="telemetry-unit">dBTP</span></div>
+                    </div>
+                    <div class="telemetry-item">
+                        <div class="telemetry-label">Centroid</div>
+                        <div class="telemetry-value" id="telemetryCentroid">--<span class="telemetry-unit">Hz</span></div>
+                    </div>
+                    <div class="telemetry-item">
+                        <div class="telemetry-label">Duration</div>
+                        <div class="telemetry-value" id="telemetryDuration">--<span class="telemetry-unit">s</span></div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 20px;">
+                    <button class="btn btn-secondary" onclick="analyzeSelected()">
+                        🔍 Analyze Selected Items
+                    </button>
+                </div>
+
+                <div style="margin-top: 30px;">
+                    <div class="panel-header">
+                        <span class="panel-title">Generated Output</span>
+                    </div>
+                    <div id="outputList" style="display: flex; flex-direction: column; gap: 10px;">
+                        <div style="color: var(--text-secondary); text-align: center; padding: 40px;">
+                            No generations yet. Start by entering a prompt.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: REAPER Integration -->
+            <div class="panel">
+                <div class="panel-header">
+                    <span class="panel-title">REAPER Project</span>
+                </div>
+
+                <div class="telemetry-grid" style="margin-bottom: 20px;">
+                    <div class="telemetry-item">
+                        <div class="telemetry-label">Project</div>
+                        <div class="telemetry-value" id="projectName" style="font-size: 14px;">--</div>
+                    </div>
+                    <div class="telemetry-item">
+                        <div class="telemetry-label">Sample Rate</div>
+                        <div class="telemetry-value" id="sampleRate">--<span class="telemetry-unit">Hz</span></div>
+                    </div>
+                    <div class="telemetry-item">
+                        <div class="telemetry-label">Tempo</div>
+                        <div class="telemetry-value" id="projectBpm">--<span class="telemetry-unit">BPM</span></div>
+                    </div>
+                    <div class="telemetry-item">
+                        <div class="telemetry-label">Play State</div>
+                        <div class="telemetry-value" id="playState" style="font-size: 14px;">Stopped</div>
+                    </div>
+                </div>
+
+                <div class="panel-header">
+                    <span class="panel-title">Tracks</span>
+                </div>
+
+                <div class="track-list" id="trackList">
+                    <!-- Tracks populated dynamically -->
+                </div>
+
+                <div style="margin-top: 20px; display: flex; gap: 10px;">
+                    <button class="btn btn-secondary" onclick="refreshTelemetry()" style="flex: 1;">
+                        🔄 Refresh
+                    </button>
+                    <button class="btn btn-secondary" onclick="importToReaper()" style="flex: 1;">
+                        📥 Import to REAPER
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Console Log -->
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">System Console</span>
+                <button class="btn btn-secondary" onclick="clearConsole()" style="width: auto; padding: 8px 16px;">
+                    Clear
+                </button>
+            </div>
+            <div class="console-log" id="consoleLog">
+                <div class="log-entry">
+                    <span class="log-time">[SYSTEM]</span>
+                    MAAPS v4.0 TITAN REBUILT initialized
+                </div>
+                <div class="log-entry">
+                    <span class="log-time">[SYSTEM]</span>
+                    Waiting for REAPER connection...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div class="modal-overlay" id="confirmModal">
+        <div class="modal">
+            <h2>Confirm Generation</h2>
+            <p id="confirmMessage">Are you sure you want to generate audio with these parameters?</p>
+            <div class="modal-buttons">
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-generate" onclick="confirmGeneration()">Generate</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // WebSocket connection
+        let ws = null;
+        let pendingRequest = null;
+
+        // Initialize WebSocket
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.hostname}:8765/ws`;
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => {
+                log('WebSocket connected', 'success');
+                updateConnectionStatus(true);
+                refreshTelemetry();
+            };
+            
+            ws.onclose = () => {
+                log('WebSocket disconnected. Reconnecting...', 'error');
+                updateConnectionStatus(false);
+                setTimeout(connectWebSocket, 3000);
+            };
+            
+            ws.onerror = (error) => {
+                log(`WebSocket error: ${error}`, 'error');
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(data);
+            };
+        }
+
+        function handleWebSocketMessage(data) {
+            if (data.timestamp) {
+                updateTelemetry(data);
+            }
+            
+            if (data.items) {
+                updateTrackList(data.items);
+            }
+            
+            if (data.status === 'queued') {
+                log('Generation request queued', 'success');
+            }
+            
+            if (data.agent_state) {
+                updateAgentState(data.agent_state);
+            }
+            
+            if (data.progress !== undefined) {
+                updateProgress(data.progress, data.progress_message || '');
+            }
+            
+            if (data.result) {
+                handleGenerationResult(data.result);
+            }
+        }
+
+        // Update UI functions
+        function updateConnectionStatus(connected) {
+            const statusDot = document.getElementById('reaperStatus');
+            const statusText = document.getElementById('reaperStatusText');
+            
+            if (connected) {
+                statusDot.classList.remove('disconnected');
+                statusText.textContent = 'REAPER Connected';
+            } else {
+                statusDot.classList.add('disconnected');
+                statusText.textContent = 'REAPER Disconnected';
+            }
+        }
+
+        function updateTelemetry(telemetry) {
+            if (telemetry.project_name) {
+                document.getElementById('projectName').textContent = telemetry.project_name;
+            }
+            if (telemetry.sample_rate) {
+                document.getElementById('sampleRate').innerHTML = `${telemetry.sample_rate}<span class="telemetry-unit">Hz</span>`;
+            }
+            if (telemetry.bpm) {
+                document.getElementById('projectBpm').innerHTML = `${telemetry.bpm.toFixed(1)}<span class="telemetry-unit">BPM</span>`;
+            }
+            if (telemetry.play_state) {
+                document.getElementById('playState').textContent = telemetry.play_state.charAt(0).toUpperCase() + telemetry.play_state.slice(1);
+            }
+            
+            // Audio analysis telemetry
+            if (telemetry.current_lufs !== undefined && telemetry.current_lufs !== null) {
+                document.getElementById('telemetryLufs').innerHTML = `${telemetry.current_lufs.toFixed(1)}<span class="telemetry-unit">LUFS</span>`;
+            }
+            if (telemetry.spectral_centroid !== undefined && telemetry.spectral_centroid !== null) {
+                document.getElementById('telemetryCentroid').innerHTML = `${Math.round(telemetry.spectral_centroid)}<span class="telemetry-unit">Hz</span>`;
+            }
+        }
+
+        function updateTrackList(tracks) {
+            const trackList = document.getElementById('trackList');
+            
+            if (!tracks || tracks.length === 0) {
+                trackList.innerHTML = '<div style="color: var(--text-secondary); text-align: center; padding: 20px;">No tracks found</div>';
+                return;
+            }
+            
+            trackList.innerHTML = tracks.map(track => `
+                <div class="track-item" onclick="selectTrack(${track.track_id})">
+                    <div class="track-color" style="background: rgb(${track.color_r || 0}, ${track.color_g || 245}, ${track.color_b || 255})"></div>
+                    <div class="track-info">
+                        <div class="track-name">${track.track_name || `Track ${track.track_id}`}</div>
+                        <div class="track-meta">Vol: ${(track.volume * 100).toFixed(0)}% | ${track.muted ? '🔇' : '🔊'}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updateAgentState(agentStates) {
+            const states = {
+                'auditor': document.getElementById('auditorState'),
+                'composer': document.getElementById('composerState'),
+                'alchemist': document.getElementById('alchemistState'),
+                'engineer': document.getElementById('engineerState')
+            };
+            
+            const cards = {
+                'auditor': document.getElementById('auditorCard'),
+                'composer': document.getElementById('composerCard'),
+                'alchemist': document.getElementById('alchemistCard'),
+                'engineer': document.getElementById('engineerCard')
+            };
+            
+            Object.entries(agentStates).forEach(([agent, state]) => {
+                if (states[agent]) {
+                    states[agent].textContent = state.toUpperCase();
+                    
+                    // Update card styling
+                    cards[agent].classList.remove('active', 'processing');
+                    if (state === 'active' || state === 'processing') {
+                        cards[agent].classList.add('processing');
+                    } else if (state === 'idle') {
+                        cards[agent].classList.add('active');
+                    }
+                }
+            });
+        }
+
+        function updateProgress(progress, message) {
+            const container = document.getElementById('progressContainer');
+            const fill = document.getElementById('progressFill');
+            const text = document.getElementById('progressText');
+            
+            container.style.display = 'block';
+            fill.style.width = `${progress}%`;
+            text.textContent = message || `Processing: ${progress}%`;
+            
+            if (progress >= 100) {
+                setTimeout(() => {
+                    container.style.display = 'none';
+                }, 2000);
+            }
+        }
+
+        function handleGenerationResult(result) {
+            log(`Generation complete! ${result.output_paths?.length || 0} files created`, 'success');
+            
+            const outputList = document.getElementById('outputList');
+            if (result.output_paths && result.output_paths.length > 0) {
+                outputList.innerHTML = result.output_paths.map((path, i) => `
+                    <div class="track-item">
+                        <div class="track-color"></div>
+                        <div class="track-info">
+                            <div class="track-name">Stem ${i + 1}</div>
+                            <div class="track-meta">${path}</div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+            
+            updateProgress(100, 'Complete!');
+        }
+
+        // Form submission
+        document.getElementById('generationForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = {
+                prompt: document.getElementById('prompt').value,
+                style: document.getElementById('style').value,
+                duration: parseFloat(document.getElementById('duration').value),
+                bpm: document.getElementById('bpm').value ? parseFloat(document.getElementById('bpm').value) : null,
+                key: document.getElementById('key').value || null,
+                lyrics: document.getElementById('lyrics').value || null,
+                target_lufs: parseFloat(document.getElementById('targetLufs').value),
+                dry_run: false
+            };
+            
+            if (!formData.prompt) {
+                log('Please enter a creative prompt', 'error');
+                return;
+            }
+            
+            // Show confirmation modal
+            document.getElementById('confirmMessage').textContent = 
+                `Generate ${formData.duration}s of ${formData.style} music:\n"${formData.prompt}"`;
+            document.getElementById('confirmModal').style.display = 'flex';
+            pendingRequest = formData;
+        });
+
+        function closeModal() {
+            document.getElementById('confirmModal').style.display = 'none';
+            pendingRequest = null;
+        }
+
+        function confirmGeneration() {
+            if (!pendingRequest) return;
+            
+            log(`Starting generation: ${pendingRequest.prompt}`, 'success');
+            closeModal();
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    command: 'generate',
+                    request: pendingRequest
+                }));
+                
+                // Simulate progress updates
+                simulateProgress();
+            } else {
+                log('WebSocket not connected. Running in mock mode...', 'error');
+                simulateProgress();
+            }
+        }
+
+        function simulateProgress() {
+            const stages = [
+                { progress: 10, message: 'Auditor analyzing input...' },
+                { progress: 25, message: 'Composer generating structure...' },
+                { progress: 50, message: 'Alchemist generating audio (GPU)...' },
+                { progress: 75, message: 'Engineer mastering...' },
+                { progress: 90, message: 'Auditor critiquing output...' },
+                { progress: 100, message: 'Complete!' }
+            ];
+            
+            let stage = 0;
+            const interval = setInterval(() => {
+                if (stage >= stages.length) {
+                    clearInterval(interval);
+                    return;
+                }
+                
+                updateProgress(stages[stage].progress, stages[stage].message);
+                log(stages[stage].message);
+                stage++;
+            }, 1500);
+        }
+
+        // Other functions
+        async function analyzeSelected() {
+            log('Analyzing selected items...', 'success');
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ command: 'get_selected_items' }));
+            }
+            
+            // Mock analysis
+            setTimeout(() => {
+                document.getElementById('telemetryBpm').innerHTML = '120<span class="telemetry-unit">BPM</span>';
+                document.getElementById('telemetryKey').textContent = 'A minor';
+                document.getElementById('telemetryLufs').innerHTML = '-18.5<span class="telemetry-unit">LUFS</span>';
+                document.getElementById('telemetryPeak').innerHTML = '-3.2<span class="telemetry-unit">dBTP</span>';
+                document.getElementById('telemetryCentroid').innerHTML = '2450<span class="telemetry-unit">Hz</span>';
+                document.getElementById('telemetryDuration').innerHTML = '30.5<span class="telemetry-unit">s</span>';
+                log('Analysis complete', 'success');
+                generateWaveform();
+            }, 1000);
+        }
+
+        async function refreshTelemetry() {
+            log('Refreshing telemetry...', 'success');
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ command: 'get_telemetry' }));
+            }
+        }
+
+        function importToReaper() {
+            log('Importing generated stems to REAPER...', 'success');
+            // This would be handled by the backend
+        }
+
+        function selectTrack(trackId) {
+            log(`Selected track ${trackId}`, 'success');
+            // Highlight selected track
+            document.querySelectorAll('.track-item').forEach(item => item.classList.remove('selected'));
+            event.currentTarget.classList.add('selected');
+        }
+
+        function clearConsole() {
+            document.getElementById('consoleLog').innerHTML = '';
+        }
+
+        function log(message, type = '') {
+            const consoleLog = document.getElementById('consoleLog');
+            const time = new Date().toLocaleTimeString();
+            
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.innerHTML = `<span class="log-time">[${time}]</span>${message}`;
+            
+            consoleLog.appendChild(entry);
+            consoleLog.scrollTop = consoleLog.scrollHeight;
+        }
+
+        function generateWaveform() {
+            const waveform = document.getElementById('waveform');
+            waveform.innerHTML = '';
+            
+            for (let i = 0; i < 100; i++) {
+                const bar = document.createElement('div');
+                bar.className = 'waveform-bar';
+                bar.style.height = `${20 + Math.random() * 80}%`;
+                waveform.appendChild(bar);
+            }
+        }
+
+        // Clock
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('clock').textContent = now.toLocaleTimeString();
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            connectWebSocket();
+            updateClock();
+            setInterval(updateClock, 1000);
+            generateWaveform();
+            
+            log('MAAPS v4.0 interface loaded', 'success');
+        });
+    </script>
+</body>
+</html>

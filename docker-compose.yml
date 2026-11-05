@@ -103,32 +103,10 @@ services:
         max-file: "3"
 
   # ----------------------------------------
-  # 4. SCRAPER (Selenium Grid)
+  # 4. (removed) Selenium Grid — Scraper v2
+  #    uses Playwright's bundled Chromium; no grid service required.
+  #    Set GROQ_API_KEY for AI qualification (free Llama 3 70B).
   # ----------------------------------------
-  selenium:
-    image: selenium/standalone-chrome:latest
-    container_name: maaps_selenium
-    restart: unless-stopped
-    shm_size: "2gb"
-    ports:
-      - "4444:4444"
-      - "7900:7900"  # VNC viewing (password: secret)
-    environment:
-      - SE_NODE_MAX_SESSIONS=5
-      - SE_NODE_SESSION_TIMEOUT=600
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4444/status"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-    networks:
-      - maaps_network
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
   # ----------------------------------------
   # 5. AGENT ORCHESTRATOR (Replaces n8n)
@@ -150,8 +128,7 @@ services:
       POSTGRES_DB: maaps
       QDRANT_HOST: qdrant
       QDRANT_PORT: 6333
-      SELENIUM_HOST: selenium
-      SELENIUM_PORT: 4444
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
       GPU_WORKER_HOST: audio_worker
       GPU_WORKER_PORT: 8000
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET}
@@ -176,8 +153,6 @@ services:
       qdrant:
         condition: service_healthy
       audio_worker:
-        condition: service_healthy
-      selenium:
         condition: service_healthy
     networks:
       - maaps_network

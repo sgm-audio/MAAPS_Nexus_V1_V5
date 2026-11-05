@@ -32,9 +32,17 @@ transformers>=4.36.0
 # Stem Separation
 demucs>=4.0.0
 
-# Web Scraping
-selenium>=4.17.0
+# Web Scraping (Hunter-Killer: Playwright + Groq/Llama 3)
+playwright>=1.42.0
+groq>=0.8.0
 beautifulsoup4>=4.12.0
+lxml>=5.0.0
+
+# Email Variants (Agent 0 migration: A/B templates + tracking)
+jinja2>=3.1.0
+
+# Telemetry (Agent 0 migration: 60Hz WebSocket monitor)
+psutil>=5.9.0
 
 # HTTP
 httpx>=0.26.0

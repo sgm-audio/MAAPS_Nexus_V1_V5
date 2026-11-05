@@ -24,9 +24,12 @@ class Config:
     qdrant_host: str = "qdrant"
     qdrant_port: int = 6333
     
-    # Selenium (Scraper)
+    # Selenium (Scraper) - DEPRECATED: Playwright bundles its own Chromium
     selenium_host: str = "selenium"
     selenium_port: int = 4444
+
+    # Groq (AI Qualification - free Llama 3 70B)
+    groq_api_key: str = ""
     
     # GPU Audio Worker
     gpu_worker_host: str = "audio_worker"
@@ -47,12 +50,29 @@ class Config:
     smtp_port: int = 587
     smtp_user: str = ""
     smtp_password: str = ""
+
+    # Outbound tracking (Agent 0 migration)
+    tracking_base_url: str = "https://sgm-audio.io"
+    tracking_log_path: str = ""
     
     # Audio Export (V3)
     sgm_studios_path: str = "/mnt/sgm_studios"
     
     # Timezone
     timezone: str = "America/Regina"
+    
+    # LLM Configuration (Outbound Personalization)
+    outbound_llm_enabled: bool = True
+    outbound_llm_provider: str = "openai"  # openai, anthropic, local
+    outbound_llm_model: str = "gpt-4o-mini"
+    outbound_llm_temperature: float = 0.7
+    outbound_llm_max_tokens: int = 500
+    outbound_llm_timeout: float = 30.0
+    
+    # LLM API Keys
+    openai_api_key: str = ""
+    anthropic_api_key: str = ""
+    local_llm_model: str = "microsoft/Phi-3-mini-4k-instruct"
     
     @classmethod
     def from_env(cls) -> 'Config':
@@ -67,6 +87,7 @@ class Config:
             qdrant_port=int(os.getenv("QDRANT_PORT", "6333")),
             selenium_host=os.getenv("SELENIUM_HOST", "selenium"),
             selenium_port=int(os.getenv("SELENIUM_PORT", "4444")),
+            groq_api_key=os.getenv("GROQ_API_KEY", ""),
             gpu_worker_host=os.getenv("GPU_WORKER_HOST", "audio_worker"),
             gpu_worker_port=int(os.getenv("GPU_WORKER_PORT", "8000")),
             github_webhook_secret=os.getenv("GITHUB_WEBHOOK_SECRET", ""),
@@ -77,8 +98,21 @@ class Config:
             smtp_port=int(os.getenv("SMTP_PORT", "587")),
             smtp_user=os.getenv("SMTP_USER", ""),
             smtp_password=os.getenv("SMTP_PASSWORD", ""),
+            tracking_base_url=os.getenv("TRACKING_BASE_URL", "https://sgm-audio.io"),
+            tracking_log_path=os.getenv("TRACKING_LOG_PATH", ""),
             sgm_studios_path=os.getenv("SGM_STUDIOS_PATH", "/mnt/sgm_studios"),
-            timezone=os.getenv("TZ", "America/Regina")
+            timezone=os.getenv("TZ", "America/Regina"),
+            # LLM Configuration
+            outbound_llm_enabled=os.getenv("OUTBOUND_LLM_ENABLED", "true").lower() == "true",
+            outbound_llm_provider=os.getenv("OUTBOUND_LLM_PROVIDER", "openai"),
+            outbound_llm_model=os.getenv("OUTBOUND_LLM_MODEL", "gpt-4o-mini"),
+            outbound_llm_temperature=float(os.getenv("OUTBOUND_LLM_TEMPERATURE", "0.7")),
+            outbound_llm_max_tokens=int(os.getenv("OUTBOUND_LLM_MAX_TOKENS", "500")),
+            outbound_llm_timeout=float(os.getenv("OUTBOUND_LLM_TIMEOUT", "30.0")),
+            # LLM API Keys
+            openai_api_key=os.getenv("OPENAI_API_KEY", ""),
+            anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
+            local_llm_model=os.getenv("LOCAL_LLM_MODEL", "microsoft/Phi-3-mini-4k-instruct")
         )
     
     @property
