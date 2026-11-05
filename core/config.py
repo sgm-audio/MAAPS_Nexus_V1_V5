@@ -50,6 +50,10 @@ class Config:
     smtp_port: int = 587
     smtp_user: str = ""
     smtp_password: str = ""
+
+    # Outbound tracking (Agent 0 migration)
+    tracking_base_url: str = "https://sgm-audio.io"
+    tracking_log_path: str = ""
     
     # Audio Export (V3)
     sgm_studios_path: str = "/mnt/sgm_studios"
@@ -94,6 +98,8 @@ class Config:
             smtp_port=int(os.getenv("SMTP_PORT", "587")),
             smtp_user=os.getenv("SMTP_USER", ""),
             smtp_password=os.getenv("SMTP_PASSWORD", ""),
+            tracking_base_url=os.getenv("TRACKING_BASE_URL", "https://sgm-audio.io"),
+            tracking_log_path=os.getenv("TRACKING_LOG_PATH", ""),
             sgm_studios_path=os.getenv("SGM_STUDIOS_PATH", "/mnt/sgm_studios"),
             timezone=os.getenv("TZ", "America/Regina"),
             # LLM Configuration

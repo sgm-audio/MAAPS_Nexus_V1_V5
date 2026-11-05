@@ -38,6 +38,9 @@ groq>=0.8.0
 beautifulsoup4>=4.12.0
 lxml>=5.0.0
 
+# Email Variants (Agent 0 migration: A/B templates + tracking)
+jinja2>=3.1.0
+
 # HTTP
 httpx>=0.26.0
 requests>=2.31.0

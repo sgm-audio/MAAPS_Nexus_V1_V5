@@ -17,6 +17,14 @@ from dataclasses import dataclass
 import logging
 
 from core import BaseAgent, Message, Topics, Priority
+from agents.email_variants import (
+    TrackingManager,
+    render_email,
+    select_variant,
+    simple_substitute,
+    VARIANT_KEYS,
+    HAS_JINJA2,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +38,11 @@ class Campaign:
     voice_model_id: Optional[str] = None
     status: str = "draft"
     voice_enabled: bool = True  # Per-campaign voice toggle
+    # Variant system (from Agent 0 migration)
+    # None/empty -> legacy template path; else variant key | 'rotate' | 'random'
+    variant: Optional[str] = None
+    sender: str = "Scott Mills\nAI Audio Architect | SGM Studios\nCreator of MAAPS"
+    loom_url: str = "https://www.loom.com/share/YOUR_ARCHITECT_VIDEO"
 
 
 @dataclass
@@ -41,6 +54,8 @@ class OutboundMessage:
     lead_name: str
     lead_email: str
     personalized_text: str
+    subject: str = ""                    # Rendered subject line
+    variant_name: str = ""               # Which template variant was used
     audio_path: Optional[str] = None
     email_sent: bool = False
 
@@ -81,6 +96,16 @@ class OutboundAgent(BaseAgent):
         
         # Templates
         self._default_email_template = ""
+        
+        # Variant rendering + tracking (Agent 0 migration)
+        self._tracking_base_url = getattr(self.config, 'tracking_base_url',
+                                          'https://sgm-audio.io')
+        self._tracking_log_path = getattr(self.config, 'tracking_log_path', None)
+        self.tracker = TrackingManager(
+            base_url=self._tracking_base_url,
+            log_path=self._tracking_log_path,
+        )
+        self._lead_counter = 0  # For rotate/random variant selection
         
         # LLM personalization config
         self._llm_enabled = getattr(self.config, 'outbound_llm_enabled', True)
@@ -195,9 +220,13 @@ class OutboundAgent(BaseAgent):
         Expected payload:
             - campaign_id: Unique campaign ID
             - name: Campaign name
-            - template: Email/voice template
+            - template: Legacy email/voice template
             - voice_model_id: Optional voice model for audio
             - voice_enabled: Optional boolean to enable/disable voice (default True)
+            - variant: Email variant key, 'rotate', or 'random'
+              (default: 'variant_b_margin'; see agents/email_variants.py)
+            - sender: Signature block (default: SGM Studios)
+            - loom_url: Architecture video URL for variants C/D
         """
         payload = message.payload
         
@@ -207,13 +236,21 @@ class OutboundAgent(BaseAgent):
             template=payload.get('template', ''),
             voice_model_id=payload.get('voice_model_id'),
             status='active',
-            voice_enabled=payload.get('voice_enabled', True)
+            voice_enabled=payload.get('voice_enabled', True),
+            variant=payload.get('variant'),  # None -> legacy template path
+            sender=payload.get('sender',
+                               "Scott Mills\nAI Audio Architect | SGM Studios\nCreator of MAAPS"),
+            loom_url=payload.get('loom_url',
+                                 "https://www.loom.com/share/YOUR_ARCHITECT_VIDEO"),
         )
         
         with self.campaigns_lock:
             self.campaigns[campaign.campaign_id] = campaign
         
-        self.log("INFO", f"Campaign started: {campaign.name} (voice_enabled={campaign.voice_enabled}, voice_model={campaign.voice_model_id})")
+        self.log("INFO", f"Campaign started: {campaign.name} "
+                         f"(variant={campaign.variant}, "
+                         f"voice_enabled={campaign.voice_enabled}, "
+                         f"voice_model={campaign.voice_model_id})")
         
         self.respond(message, {
             'success': True,
@@ -256,8 +293,11 @@ class OutboundAgent(BaseAgent):
         with self.campaigns_lock:
             campaign = self.campaigns.get(campaign_id)
         
-        # Generate personalized message
+        # Generate personalized message + subject (variant selection advances
+        # per lead for rotate/random campaigns)
         personalized = self._personalize_message(lead, campaign)
+        subject, variant_name = self._render_subject(lead, campaign)
+        self._lead_counter += 1
         
         # Create outbound message
         outbound = OutboundMessage(
@@ -266,7 +306,9 @@ class OutboundAgent(BaseAgent):
             lead_id=lead.get('id', ''),
             lead_name=lead.get('name', ''),
             lead_email=lead.get('email', ''),
-            personalized_text=personalized
+            personalized_text=personalized,
+            subject=subject,
+            variant_name=variant_name,
         )
         
         # Queue for processing
@@ -276,8 +318,14 @@ class OutboundAgent(BaseAgent):
         self.log("INFO", f"Lead queued: {outbound.lead_name}")
     
     def _personalize_message(self, lead: Dict, campaign: Optional[Campaign]) -> str:
-        """Generate personalized message for lead"""
-        template = campaign.template if campaign else self._default_template()
+        """Generate personalized message for lead.
+        
+        Priority:
+        1. LLM generation (if enabled) using variant template as reference
+        2. Jinja2 variant rendering (if jinja2 available)
+        3. Simple {name}/{company} substitution (always works)
+        """
+        template = campaign.template if campaign and campaign.template else self._default_template()
         
         # Try LLM-based personalization first if enabled
         if self._llm_enabled:
@@ -289,12 +337,41 @@ class OutboundAgent(BaseAgent):
             except Exception as e:
                 self.log("WARNING", f"LLM personalization failed, falling back to template: {e}")
         
-        # Fallback: Simple template substitution
-        personalized = template.replace('{name}', lead.get('name', 'there'))
-        personalized = personalized.replace('{company}', lead.get('company', 'your company'))
-        personalized = personalized.replace('{bio}', lead.get('bio', '')[:100] if lead.get('bio') else '')
+        # Variant rendering (jinja2) - the Agent 0 email system.
+        # Only when campaign explicitly opts in via variant field.
+        if campaign and campaign.variant and HAS_JINJA2:
+            try:
+                variant_key = select_variant(campaign.variant, self._lead_counter)
+                _, body, variant_name = render_email(
+                    lead, variant_key, self.tracker,
+                    sender=campaign.sender,
+                    loom_url=campaign.loom_url,
+                )
+                self.log("DEBUG", f"Variant rendered: {variant_name} for {lead.get('company')}")
+                return body
+            except Exception as e:
+                self.log("WARNING", f"Variant rendering failed, using simple substitution: {e}")
         
-        return personalized
+        # Fallback: Simple template substitution
+        return simple_substitute(template, lead)
+
+    def _render_subject(self, lead: Dict, campaign: Optional[Campaign]) -> tuple:
+        """Render subject line + variant name for a lead.
+        
+        Returns (subject, variant_name). Falls back to legacy subject format.
+        """
+        if campaign and campaign.variant and HAS_JINJA2:
+            try:
+                variant_key = select_variant(campaign.variant, self._lead_counter)
+                subject, _, variant_name = render_email(
+                    lead, variant_key, self.tracker,
+                    sender=campaign.sender,
+                    loom_url=campaign.loom_url,
+                )
+                return subject, variant_name
+            except Exception as e:
+                self.log("WARNING", f"Subject rendering failed: {e}")
+        return f"Quick question for {lead.get('name', 'there')}", ""
 
     def _llm_personalize(self, lead: Dict, template: str) -> str:
         """
@@ -541,7 +618,8 @@ Hivyr AI Agency"""
                 self.publish(Topics.OUTBOUND_COMPLETE, {
                     'message_id': message.message_id,
                     'lead_email': message.lead_email,
-                    'has_audio': message.audio_path is not None
+                    'has_audio': message.audio_path is not None,
+                    'variant': message.variant_name,
                 })
                 
                 self.log("INFO", f"Outbound sent: {message.lead_email}")
@@ -652,11 +730,11 @@ Hivyr AI Agency"""
             
             smtp_user = self.config.smtp_user
             
-            # Create message
+            # Create message (subject from variant renderer when available)
             msg = MIMEMultipart()
             msg['From'] = smtp_user
             msg['To'] = message.lead_email
-            msg['Subject'] = f"Quick question for {message.lead_name}"
+            msg['Subject'] = message.subject or f"Quick question for {message.lead_name}"
             
             # Add text body
             msg.attach(MIMEText(message.personalized_text, 'plain'))

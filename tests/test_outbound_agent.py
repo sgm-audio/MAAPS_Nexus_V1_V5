@@ -123,6 +123,62 @@ class TestOutboundAgentPersonalization:
         assert result == "Hi John, I saw Acme Corp is doing great things..."
         mock_llm.assert_called_once()
     
+    def test_personalize_variant_rendering(self, outbound_agent):
+        """Campaign with explicit variant uses Agent 0 email system"""
+        outbound_agent._llm_enabled = False
+        campaign = Campaign(
+            campaign_id='test_camp',
+            name='Variant Campaign',
+            template='Hi {name}, welcome to {company}!',  # ignored when variant set
+            variant='variant_b_margin',
+        )
+        lead = {'name': 'John Doe', 'company': 'Acme Corp', 'volume': 100}
+
+        result = outbound_agent._personalize_message(lead, campaign)
+
+        # Variant B renders first name + company + burn rate
+        assert 'Hi John,' in result
+        assert 'Acme Corp' in result
+        assert 'Margin Erosion' in result
+        assert '$15,000/month' in result
+        # Tracking pixel embedded
+        assert '<img src=' in result
+
+    def test_personalize_legacy_template_when_no_variant(self, outbound_agent):
+        """Campaign without variant uses legacy {name} substitution"""
+        outbound_agent._llm_enabled = False
+        campaign = Campaign(
+            campaign_id='test_camp',
+            name='Legacy Campaign',
+            template='Hi {name}, welcome to {company}!',
+            variant=None,  # No variant -> legacy path
+        )
+        lead = {'name': 'John Doe', 'company': 'Acme Corp'}
+
+        result = outbound_agent._personalize_message(lead, campaign)
+
+        assert 'Hi John Doe, welcome to Acme Corp!' == result
+
+    def test_render_subject_legacy(self, outbound_agent):
+        """No variant -> legacy subject format"""
+        lead = {'name': 'John Doe'}
+        subject, variant_name = outbound_agent._render_subject(lead, None)
+        assert subject == 'Quick question for John Doe'
+        assert variant_name == ''
+
+    def test_render_subject_variant(self, outbound_agent):
+        """With variant -> rendered subject from template"""
+        campaign = Campaign(
+            campaign_id='test_camp',
+            name='V',
+            template='',
+            variant='variant_b_margin',
+        )
+        lead = {'name': 'John Doe', 'company': 'Acme Corp'}
+        subject, variant_name = outbound_agent._render_subject(lead, campaign)
+        assert subject == 'Ratio of editing hours to finished hours at Acme Corp'
+        assert variant_name == 'Margin Erosion'
+
     @patch('agents.outbound_agent.OutboundAgent._llm_personalize')
     def test_personalize_llm_failure_fallback(self, mock_llm, outbound_agent):
         """Test fallback to template when LLM fails"""
