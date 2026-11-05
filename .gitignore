@@ -1,4 +1,3 @@
-```
 # Python
 __pycache__/
 *.pyc
@@ -7,6 +6,8 @@ __pycache__/
 .Python
 venv/
 .venv/
+
+# Environment
 .env
 .env.local
 .env.*
@@ -35,6 +36,7 @@ htmlcov/
 
 # Temp files
 *.tmp
+.pytest_cache/
 
 # OS
 .DS_Store
@@ -42,4 +44,8 @@ Thumbs.db
 
 # Package manager
 package-lock.json
-```
+
+# Product repos that live on their own now
+# (EnAblton: github.com/sgm-audio/enabltion | Titan: github.com/sgm-audio/v4-titan)
+.enabltion-stage/
+.titan-stage/

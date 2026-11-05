@@ -1,97 +1,63 @@
-# MAAPS Nexus V1-V5 (Isolated Build)
+# MAAPS Nexus
 
-## Multi-Agent Audio Production System - Antigravity Edition
+**Multi-Agent Audio Production System.** Python agents on a pub/sub message bus. No n8n. No Suno. No babysitting.
 
-**NO n8n. NO Suno. Pure Python Agent Orchestration + HeartMuLa Integration.**
-
----
-
-## Architecture Overview
-
-This is a ground-up rebuild replacing n8n workflow orchestration with native Python agent nodes powered by a pub/sub message bus. All AI music generation references Suno have been replaced with **HeartMuLa**.
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    MAAPS Nexus V1-V5 Stack                      │
-├─────────────────────────────────────────────────────────────────┤
-│  V5: API-fication Layer (Kong/Traefik Gateway)                  │
-│  V4: Distributed Agent Mesh (Ray Cluster)                       │
-│  V3: Sub-Sonic Mastering Chain (Demucs + LUFS Normalization)    │
-│  V2: Ghost Outbound Engine (Lead Gen + Voice Personalization)   │
-│  V1: CI/CD Umbilical (GitOps Zero-Downtime Deploys)             │
-├─────────────────────────────────────────────────────────────────┤
-│                 Core Infrastructure                             │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐   │
-│  │Postgres │ │ Qdrant  │ │Selenium │ │  GPU    │ │ Agent   │   │
-│  │  (DB)   │ │ (RAG)   │ │(Scraper)│ │ Worker  │ │Orchestr.│   │
-│  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-```
+This is proprietary infrastructure built by [SGM Studios](https://sgmstudios.ca). It runs audio pipelines (stem separation, loudness normalization, AI generation), lead-gen (scrape → qualify → personalized outreach), and a RAG knowledge base — as cooperating agents, not a pile of scripts.
 
 ---
 
-## Phase Breakdown
-
-### V1: CI/CD Umbilical (Zero-Downtime Deployments)
-- GitHub webhook → Agent Orchestrator
-- Auto git pull, container rebuild, hot-reload FastAPI
-- No SSH required for deployments
-
-### V2: Ghost Outbound Engine (Sell by Chat at Scale)
-- Selenium scrapes leads (Realtor.ca, etc.)
-- LLM summarizes lead bios
-- HeartMuLa generates personalized voice clones
-- Auto-email MP3 pitches
-
-### V3: Sub-Sonic Mastering Chain (DSP Automation)
-- Demucs v4 stem separation
-- BS.1770 LUFS normalization to -14 LUFS
-- Auto-export to SGM Studios network drive
-
-### V4: Distributed Agent Mesh (Ray Cluster)
-- Replace single FastAPI with Ray actors
-- Concurrent agent execution across GPU VRAM pool
-- Enterprise-scale job handling
-
-### V5: API-fication (SaaS Moat)
-- Kong/Traefik API gateway
-- Public REST API for external clients
-- Transition from operator to platform founder
-
----
-
-## Quick Start
+## One command. That's the docs.
 
 ```bash
-# 1. Clone and enter
-cd d:\hivyr\MAAPS_Nexus_V1_V5
-
-# 2. Start infrastructure
-docker-compose up -d
-
-# 3. Verify services
-docker ps
-
-# 4. Run orchestrator
-python -m agents.orchestrator
+python run.py
 ```
 
+That checks Docker, writes `.env` if you don't have one, boots the stack, waits for health, and tells you what's running. Double-click `start.bat` if you don't want a terminal.
+
+Everything else:
+
+```bash
+python run.py status    # what's up, what's healthy
+python run.py logs      # follow the logs
+python run.py down      # stop everything
+python run.py doctor    # why isn't it working
+```
+
+Requirements: [Docker Desktop](https://www.docker.com/products/docker-desktop/) and Python 3.10+. That's the list.
+
 ---
 
-## Tech Stack
+## The stack
 
-| Component | Technology |
-|-----------|------------|
-| **Orchestration** | Python Agent Nodes (pub/sub) |
-| **Database** | PostgreSQL 16 |
-| **Vector Memory** | Qdrant |
-| **GPU Inference** | PyTorch + FastAPI |
-| **Scraping** | Selenium Grid |
-| **AI Music** | HeartMuLa |
-| **Mastering** | Demucs v4 + Pedalboard |
+| Piece | Job |
+|-------|-----|
+| **Agent Orchestrator** | Pub/sub message bus + agent lifecycle. Replaced n8n. |
+| **GPU Audio Worker** | FastAPI + PyTorch. HeartMuLa generation, Demucs stems, RVC, BS.1770 LUFS. |
+| **Hunter-Killer Scraper** | Playwright + Groq (Llama 3 70B). Scrapes, qualifies, extracts emails in one pass. |
+| **Ghost Outbound** | 4 A/B email variants, open-rate pixels, burn-rate personalization, LLM copy. |
+| **RAG Agent** | Qdrant + BGE-M3 embeddings. The system knows its own docs. |
+| **Postgres** | State. |
+
+Infrastructure: Docker Compose for single-box, Kubernetes manifests in `k8s/` when you outgrow it.
 
 ---
+
+## The phases
+
+- **V1 — CI/CD Umbilical.** GitHub webhook → git pull → hot reload. Ship without SSH.
+- **V2 — Ghost Outbound Engine.** Leads in, personalized pitches out. *This works today.*
+- **V3 — Sub-Sonic Mastering Chain.** Demucs + LUFS + auto-export. *This works today.*
+- **V4 — Titan (Distributed Agent Mesh).** Ray cluster, concurrent agent execution. *Lives in its own repo.*
+- **V5 — API-fication.** Public REST API. Operator → platform.
+
+---
+
+## For operators (me)
+
+Setup/deploy history and checklists live in [`docs/internal/`](docs/internal/) — kept for the record, not for reading. The live docs are this file and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+Tests: `python -m pytest tests/ -v`
 
 ## License
 
-Proprietary - Hivyr / SGM Studios
+**Proprietary — SGM Studios.** All rights reserved. See [LICENSE](LICENSE). This is not open source, and it's not yours to fork.
