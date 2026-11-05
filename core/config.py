@@ -24,9 +24,12 @@ class Config:
     qdrant_host: str = "qdrant"
     qdrant_port: int = 6333
     
-    # Selenium (Scraper)
+    # Selenium (Scraper) - DEPRECATED: Playwright bundles its own Chromium
     selenium_host: str = "selenium"
     selenium_port: int = 4444
+
+    # Groq (AI Qualification - free Llama 3 70B)
+    groq_api_key: str = ""
     
     # GPU Audio Worker
     gpu_worker_host: str = "audio_worker"
@@ -80,6 +83,7 @@ class Config:
             qdrant_port=int(os.getenv("QDRANT_PORT", "6333")),
             selenium_host=os.getenv("SELENIUM_HOST", "selenium"),
             selenium_port=int(os.getenv("SELENIUM_PORT", "4444")),
+            groq_api_key=os.getenv("GROQ_API_KEY", ""),
             gpu_worker_host=os.getenv("GPU_WORKER_HOST", "audio_worker"),
             gpu_worker_port=int(os.getenv("GPU_WORKER_PORT", "8000")),
             github_webhook_secret=os.getenv("GITHUB_WEBHOOK_SECRET", ""),

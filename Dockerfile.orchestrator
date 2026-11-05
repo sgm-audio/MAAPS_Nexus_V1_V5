@@ -19,6 +19,7 @@ FROM python:${PYTHON_VERSION}-slim
 WORKDIR /app
 
 # Install runtime dependencies only
+# (Playwright system deps for bundled Chromium are installed after pip stage)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     git \
@@ -27,6 +28,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy pre-built packages from builder
 COPY --from=builder /root/.local /root/.local
 ENV PATH=/root/.local/bin:$PATH
+
+# Install Playwright Chromium + system deps for the scraper agent
+# (runs as root; browsers land in /root/.cache/ms-playwright and are
+#  copied to the maaps user's cache below)
+RUN python -m playwright install --with-deps chromium \
+    && mkdir -p /home/maaps/.cache/ms-playwright \
+    && cp -r /root/.cache/ms-playwright/* /home/maaps/.cache/ms-playwright/ \
+    && chown -R maaps:maaps /home/maaps/.cache/ms-playwright
 
 # Copy application code
 COPY core/ ./core/
