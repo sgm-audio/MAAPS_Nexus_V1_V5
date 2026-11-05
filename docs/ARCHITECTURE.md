@@ -57,7 +57,9 @@ scraper.job.start
 
 ## V4 — Titan (separate repo)
 
-V4 is the distributed mesh: Ray actors replacing the in-process bus, concurrent agent execution across a GPU VRAM pool. The topic hooks (`mesh.actor.spawn`, `mesh.job.distribute`, `mesh.job.result`) exist in `core/topics.py` and are reserved. Implementation lives in its own repo so the single-box system stays simple and the mesh stays ambitious.
+V4 is the distributed mesh: Ray actors replacing the in-process bus, concurrent agent execution across a GPU VRAM pool. The topic hooks (`mesh.actor.spawn`, `mesh.job.distribute`, `mesh.job.result`) exist in `core/topics.py` and are reserved.
+
+**Titan lives at [sgm-audio/v4-titan](https://github.com/sgm-audio/v4-titan)** — mesh runtime *and* the audio domain (Auditor/Composer/Alchemist/Engineer consensus pipeline) ported out of this repo, with 47 tests. The former `maaps_v4/` folder was the same idea pre-extraction; its bugs (silent mastering no-ops, schema inconsistencies) are documented and fixed over there.
 
 ## V5 — API-fication
 

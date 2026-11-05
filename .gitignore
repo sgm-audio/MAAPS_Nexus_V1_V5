@@ -49,3 +49,4 @@ package-lock.json
 # (EnAblton: github.com/sgm-audio/enabltion | Titan: github.com/sgm-audio/v4-titan)
 .enabltion-stage/
 .titan-stage/
+.titan-merge/
