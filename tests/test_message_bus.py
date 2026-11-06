@@ -69,7 +69,9 @@ def test_unsubscribe(bus):
 def test_request_response(bus):
     """Test request/response pattern"""
     def replier(msg):
-        if msg.correlation_id:
+        # Respond to requests (messages without correlation_id)
+        # Don't respond to responses (messages with correlation_id)
+        if not msg.correlation_id:
             response = msg.create_response({"status": "ok"})
             bus.publish(response)
     

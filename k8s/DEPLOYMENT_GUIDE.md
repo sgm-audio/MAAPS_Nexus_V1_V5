@@ -32,7 +32,7 @@ Replace placeholder values in the manifests:
 - `GITHUB_WEBHOOK_SECRET`: For GitHub CI/CD
 - `SMTP_*`: Email configuration
 
-**09-orchestrator.yaml & 07-audio-worker.yaml:**
+**08-orchestrator.yaml & 07-audio-worker.yaml:**
 - Replace `ghcr.io/your-org` with your actual image registry
 
 **10-ingress.yaml:**
@@ -60,14 +60,11 @@ kubectl apply -f k8s/06-qdrant.yaml
 kubectl wait --for=condition=ready pod -l app=postgres -n maaps --timeout=300s
 kubectl wait --for=condition=ready pod -l app=qdrant -n maaps --timeout=300s
 
-# Apply other services
-kubectl apply -f k8s/08-selenium.yaml
-
 # For GPU nodes, apply audio-worker
 kubectl apply -f k8s/07-audio-worker.yaml
 
 # Apply main orchestrator
-kubectl apply -f k8s/09-orchestrator.yaml
+kubectl apply -f k8s/08-orchestrator.yaml
 
 # Apply ingress and network policies
 kubectl apply -f k8s/10-ingress.yaml
@@ -126,7 +123,7 @@ kubectl port-forward svc/orchestrator 8080:8080 -n maaps
 
 ### Orchestrator Horizontal Autoscaling
 
-Autoscaling is configured in `09-orchestrator.yaml` via HorizontalPodAutoscaler:
+Autoscaling is configured in `08-orchestrator.yaml` via HorizontalPodAutoscaler:
 - **Min replicas**: 2
 - **Max replicas**: 5
 - **Triggers**: 70% CPU or 80% memory

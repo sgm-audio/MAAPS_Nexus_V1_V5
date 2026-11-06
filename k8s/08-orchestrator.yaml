@@ -81,16 +81,6 @@ spec:
             configMapKeyRef:
               name: maaps-config
               key: QDRANT_PORT
-        - name: SELENIUM_HOST
-          valueFrom:
-            configMapKeyRef:
-              name: maaps-config
-              key: SELENIUM_HOST
-        - name: SELENIUM_PORT
-          valueFrom:
-            configMapKeyRef:
-              name: maaps-config
-              key: SELENIUM_PORT
         - name: GPU_WORKER_HOST
           valueFrom:
             configMapKeyRef:

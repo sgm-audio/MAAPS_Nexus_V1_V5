@@ -19,8 +19,6 @@ data:
   POSTGRES_DB: "maaps"
   QDRANT_HOST: "qdrant.maaps.svc.cluster.local"
   QDRANT_PORT: "6333"
-  SELENIUM_HOST: "selenium.maaps.svc.cluster.local"
-  SELENIUM_PORT: "4444"
   GPU_WORKER_HOST: "audio-worker.maaps.svc.cluster.local"
   GPU_WORKER_PORT: "8000"
 
@@ -254,21 +252,16 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: selenium
   namespace: maaps
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: selenium
   template:
     metadata:
       labels:
-        app: selenium
     spec:
       containers:
-      - name: selenium
-        image: selenium/standalone-chrome:latest
         ports:
         - containerPort: 4444
           name: webdriver
@@ -379,16 +372,12 @@ spec:
             configMapKeyRef:
               name: maaps-config
               key: QDRANT_PORT
-        - name: SELENIUM_HOST
           valueFrom:
             configMapKeyRef:
               name: maaps-config
-              key: SELENIUM_HOST
-        - name: SELENIUM_PORT
           valueFrom:
             configMapKeyRef:
               name: maaps-config
-              key: SELENIUM_PORT
         - name: GPU_WORKER_HOST
           valueFrom:
             configMapKeyRef:
@@ -498,11 +487,9 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: selenium
   namespace: maaps
 spec:
   selector:
-    app: selenium
   ports:
   - port: 4444
     targetPort: 4444

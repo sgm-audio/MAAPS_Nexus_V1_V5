@@ -12,8 +12,6 @@ data:
   POSTGRES_DB: "maaps"
   QDRANT_HOST: "qdrant.maaps.svc.cluster.local"
   QDRANT_PORT: "6333"
-  SELENIUM_HOST: "selenium.maaps.svc.cluster.local"
-  SELENIUM_PORT: "4444"
   GPU_WORKER_HOST: "audio-worker.maaps.svc.cluster.local"
   GPU_WORKER_PORT: "8000"
 

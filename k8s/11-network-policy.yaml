@@ -83,28 +83,6 @@ spec:
       port: 8000
 
 ---
-# Allow selenium to receive connections from orchestrator
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-selenium
-  namespace: maaps
-spec:
-  podSelector:
-    matchLabels:
-      app: selenium
-  policyTypes:
-  - Ingress
-  ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          app: orchestrator
-    ports:
-    - protocol: TCP
-      port: 4444
-
----
 # Allow orchestrator to receive external traffic
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

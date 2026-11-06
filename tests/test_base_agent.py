@@ -1,5 +1,6 @@
 import pytest
 import time
+import logging
 from core import BaseAgent, Message, MessageBus
 
 class MockAgent(BaseAgent):
@@ -53,6 +54,7 @@ def test_agent_receive_message(agent):
 
 def test_agent_logging(agent, caplog):
     """Test agent logging"""
+    caplog.set_level(logging.INFO)
     agent.log("INFO", "Test log message")
     
     assert "Test log message" in caplog.text
